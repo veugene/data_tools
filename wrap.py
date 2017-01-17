@@ -14,10 +14,16 @@ class multi_source_array(object):
     style of indexing used with a multi_source_array object; use simple
     indexing with integers and slices (eg. obj[0,3:10]) when unsure.
     
+    Adding dimensions to the output just by indexing is not supported. This
+    means that unlike with numpy, indexing cannot be done with `None` or
+    `numpy.newaxis`; also, for example, an array A with shape (4,5) can be
+    indexed as A[[0,1]] and A[[[0,1]]] (these are equivalent) but not as
+    A[[[[0,1]]]] for which numpy would add a dimension to the output.
+    
     source_list : list of sources to combine into one source
     class_list  : specifies class number for each source; same length as
         source_list
-    shuffle     : randomize data access order across all sources
+    shuffle     : randomize data access order within and across all sources
     """
     
     def __init__(self, source_list, class_list=None, shuffle=False):
