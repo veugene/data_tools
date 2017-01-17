@@ -73,17 +73,19 @@ class multi_source_array(object):
         for i, v in enumerate(values):
             # Lists in the aggregate key index in tandem;
             # so, index into those lists (the first list is `values`)
-            if key_remainder is not None and hasattr(key_remainder, '__len__'):
-                broadcasted_key_remainder = ()
-                for k in key_remainder:
-                    if hasattr(k, '__len__') and len(k)==np.size(k):
-                        broadcasted_key_remainder += (k[i],)
-                    else:
-                        broadcasted_key_remainder += (k,)
-                key_remainder = broadcasted_key_remainder
+            v_key_remainder = key_remainder
+            if isinstance(values, tuple) or isinstance(values, list):
+                if key_remainder is not None:
+                    broadcasted_key_remainder = ()
+                    for k in key_remainder:
+                        if hasattr(k, '__len__') and len(k)==np.size(k):
+                            broadcasted_key_remainder += (k[i],)
+                        else:
+                            broadcasted_key_remainder += (k,)
+                    v_key_remainder = broadcasted_key_remainder
             
             # Make a single read at an integer index of axis 0
-            elem = self._get_element(v, key_remainder)
+            elem = self._get_element(v, v_key_remainder)
             if item_block is None:
                 item_block = np.zeros((len(values),)+elem.shape,
                                       self.dtype)
@@ -93,18 +95,6 @@ class multi_source_array(object):
     def __getitem__(self, key):
         item = None
         key_remainder = None
-        
-        # If there are lists in the key, make sure they have the same shape
-        if hasattr(key, '__len__'):
-            key_shapes = []
-            for k in key:
-                if hasattr(k, '__len__'):
-                    key_shapes.append(np.shape(k))
-            for s in key_shapes:
-                if s!=key_shapes[0]:
-                    raise IndexError("shape mismatch: indexing arrays could "
-                                     "not be broadcast together with shapes "
-                                     ""+" ".join([str(s) for s in key_shapes]))
         
         # Grab the key for the first dimension, store the remainder
         if hasattr(key, '__len__'):
@@ -118,10 +108,29 @@ class multi_source_array(object):
                 elif key.ndim > 1:
                     raise IndexError("indexing by non-boolean multidimensional"
                                      " arrays not supported")
-            elif len(key) > self.ndim:
+                
+            # If there are lists in the key, make sure they have the same shape
+            key_shapes = []
+            for k in key:
+                if hasattr(k, '__len__'):
+                    key_shapes.append(np.shape(k))
+            for s in key_shapes:
+                if s!=key_shapes[0]:
+                    raise IndexError("shape mismatch: indexing arrays could "
+                                     "not be broadcast together with shapes "
+                                     ""+" ".join([str(s) for s in key_shapes]))
+            if len(key_shapes) > self.ndim:
+                # More sublists/subtuples than dimensions in the array
                 raise IndexError("too many indices for array")
-            key_remainder = key[1:]
-            key = key[0]
+            
+            # If there are iterables in the key, or if the key is a tuple, then
+            # each key index corresponds to a separate data dimension (as per
+            # Numpy). Otherwise, such as when the key is a list of integers,
+            # each index corresponds only to the first data dimension.
+            key_remainder = None
+            if len(key_shapes) or isinstance(key, tuple):
+                key_remainder = tuple(key[1:])
+                key = key[0]
             
         # Handle ellipsis
         if key is Ellipsis:
