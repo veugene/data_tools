@@ -18,7 +18,12 @@ class data_flow(object):
         in a batch. The actual batch size is the smallest of either this number
         or the number of elements not yet yielded in the current epoch.
     nb_workers : The number of parallel processes to do preprocessing of data
-        using the _process_batch function. NOTE that if nb_workers > 1, data loading is asynchronous!
+        using the _process_batch function. If nb_workers is set to 0, no
+        parallel processes will be launched; instead, any preprocessing will be
+        done in the preload thread and data will have to pass through only one
+        queue rather than two queues. NOTE that if nb_workers > 1, data
+        processing is asynchronous and data will not be yielded in the order
+        that it is loaded!
     shuffle : If True, access the elements of the data arrays in random 
         order.
     loop_forever : If False, stop iteration at the end of an epoch (when all
@@ -331,7 +336,7 @@ class h5py_array_writer(buffered_array_writer):
 
 class bcolz_array_writer(buffered_array_writer):
     """
-    Given a data element shape and batch size, writes data to an bcolz file-set batch-wise. Data can be passed in any number of elements at a time.
+    Given a data element shape and batch size, writes data to a bcolz file-set batch-wise. Data can be passed in any number of elements at a time.
     
     INPUTS
     data_element_shape : shape of one input element
