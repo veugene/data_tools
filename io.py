@@ -145,9 +145,9 @@ class data_flow(object):
                 stop_on_empty.set()
                 load_queue.join()     # Wait for processing
                 proc_queue.join()     # Wait for yielding
+                stop.set()            # Set exit event
                 proc_queue.put(None)  # Stop blocking on get() in main thread
                 proc_queue.join()     # Wait for main thread to get None
-                stop.set()
                 
     ''' Process any loaded batches in the load queue and add them to the
         processed queue -- these are ready to yield. '''
