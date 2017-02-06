@@ -108,6 +108,7 @@ class data_flow(object):
                 # If nb_workers==0, proc_queue is just an alias to load_queue
                 proc_queue.close()
             if load_queue is not None:
+                load_queue.cancel_join_thread()
                 load_queue.close()
             for process in process_list:
                 if process.is_alive():
