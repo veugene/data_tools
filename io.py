@@ -82,12 +82,13 @@ class data_flow(object):
             raise
         finally:
             # Clean up, whether there was an exception or not.
+            #
+            # Set termination event, wait for all processes and threads to
+            # end and clear and close all the queues.
+            #
+            # NOTE: all queues are emptied before joining processes in case the
+            # processes block on put().
             stop.set()
-            for process in process_list:
-                if process.is_alive():
-                    process.join()
-            if preload_thread is not None:
-                preload_thread.join()
             if proc_queue is not None:
                 if not proc_queue.empty():
                     print("Warning: proc_queue is not empty on termination! "
@@ -102,7 +103,12 @@ class data_flow(object):
                     while not load_queue.empty():
                         load_queue.get()
                 load_queue.close()
-        
+            for process in process_list:
+                if process.is_alive():
+                    process.join()
+            if preload_thread is not None:
+                preload_thread.join()
+    
     ''' Do preprocessing on the batch here.
         Subclass the class to customize this function.
         
