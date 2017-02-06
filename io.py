@@ -91,18 +91,18 @@ class data_flow(object):
             stop.set()
             if proc_queue is not None:
                 if not proc_queue.empty():
-                    print("Warning: proc_queue is not empty on termination! "
-                          "Emptying...")
                     while not proc_queue.empty():
                         proc_queue.get()
+                        proc_queue.task_done()
                 proc_queue.close()
+                proc_queue.join_thread()
             if load_queue is not None:
                 if not load_queue.empty():
-                    print("Warning: load_queue is not empty on termination! "
-                          "Emptying...")
                     while not load_queue.empty():
                         load_queue.get()
+                        load_queue.task_done()
                 load_queue.close()
+                load_queue.join_thread()
             for process in process_list:
                 if process.is_alive():
                     process.join()
