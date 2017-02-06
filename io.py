@@ -78,11 +78,7 @@ class data_flow(object):
                     stop.set()
                     raise
         except:
-            # Terminate processes if an exception is thrown
-            # (don't wait for them to stop themselves).
-            for process in process_list:
-                if process.is_alive():
-                    process.terminate()
+            stop.set()
             raise
         finally:
             # Clean up, whether there was an exception or not.
