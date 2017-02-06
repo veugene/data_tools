@@ -57,8 +57,15 @@ class data_flow(object):
             # Create the queues.
             #   NOTE: these can become corrupt on sub-process termination,
             #   so create them in flow() and let them die with the flow().
-            load_queue = multiprocessing.JoinableQueue(self.nb_workers)
-            proc_queue = multiprocessing.JoinableQueue(self.nb_workers)
+            q_size = max(1, self.nb_workers)
+            load_queue = multiprocessing.JoinableQueue(q_size)
+            if self.nb_workers > 0:
+                proc_queue = multiprocessing.JoinableQueue(q_size)
+            else:
+                # If there are no worker processes, alias load_queue as
+                # proc_queue, allowing data to thus be yielded directly from
+                # the load_queue.
+                proc_queue = load_queue
             
             # Start the parallel data processing proccess(es)
             for i in range(self.nb_workers):
@@ -99,7 +106,8 @@ class data_flow(object):
             # NOTE: all queues are emptied before joining processes in case the
             # processes block on put().
             stop.set()
-            if proc_queue is not None:
+            if self.nb_workers and proc_queue is not None:
+                # If nb_workers==0, proc_queue is just an alias to load_queue
                 if not proc_queue.empty():
                     while not proc_queue.empty():
                         proc_queue.get()
@@ -145,7 +153,12 @@ class data_flow(object):
                         batch = []
                         for d in self.data:
                             batch.append([d[i][...] for i in batch_indices])
-                        load_queue.put( batch )
+                        if self.nb_workers > 0:
+                            load_queue.put( batch )
+                        else:
+                            # If there are no worker processes, preprocess
+                            # the batch in the loader thread.
+                            load_queue.put( self._process_batch(batch) )
                 except:
                     stop.set()
                     raise
