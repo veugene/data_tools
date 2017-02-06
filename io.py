@@ -1,9 +1,8 @@
 import numpy as np
 import threading
 import multiprocessing
-import queue
 import h5py
-import bcolz
+#import bcolz
 
 
 class data_flow(object):
@@ -46,7 +45,6 @@ class data_flow(object):
     def flow(self):
         # Create a stop event to trigger on exceptions/interrupt/termination.
         stop = multiprocessing.Event()
-        stop_on_empty = multiprocessing.Event()
         
         # Prepare to start processes + thread.
         load_queue = None
@@ -58,9 +56,9 @@ class data_flow(object):
             #   NOTE: these can become corrupt on sub-process termination,
             #   so create them in flow() and let them die with the flow().
             q_size = max(1, self.nb_workers)
-            load_queue = multiprocessing.JoinableQueue(q_size)
+            load_queue = multiprocessing.Queue(q_size)
             if self.nb_workers > 0:
-                proc_queue = multiprocessing.JoinableQueue(q_size)
+                proc_queue = multiprocessing.Queue(q_size)
             else:
                 # If there are no worker processes, alias load_queue as
                 # proc_queue, allowing data to thus be yielded directly from
@@ -71,7 +69,7 @@ class data_flow(object):
             for i in range(self.nb_workers):
                 process_thread = multiprocessing.Process( \
                     target=self._process_subroutine,
-                    args=(load_queue, proc_queue, stop, stop_on_empty) )
+                    args=(load_queue, proc_queue, stop) )
                 process_thread.daemon = True
                 process_thread.start()
                 process_list.append(process_thread)
@@ -80,17 +78,20 @@ class data_flow(object):
             # (must be started AFTER processes to avoid copying it in fork())
             preload_thread = threading.Thread( \
                 target=self._preload_subroutine,
-                args=(load_queue, proc_queue, stop, stop_on_empty) )
+                args=(load_queue, proc_queue, stop) )
             preload_thread.daemon = True
             preload_thread.start()
             
             # Yield batches fetched from the parallel process(es).
+            nb_yielded = 0
             while not stop.is_set():
                 try:
+                    if not self.loop_forever and nb_yielded==self.num_batches:
+                        stop.set()
+                        continue
                     batch = proc_queue.get()
-                    if batch is not None:
-                        yield batch
-                    proc_queue.task_done()
+                    yield batch
+                    nb_yielded += 1
                 except:
                     stop.set()
                     raise
@@ -100,30 +101,17 @@ class data_flow(object):
         finally:
             # Clean up, whether there was an exception or not.
             #
-            # Set termination event, wait for all processes and threads to
-            # end and clear and close all the queues.
-            #
-            # NOTE: all queues are emptied before joining processes in case the
-            # processes block on put().
+            # Set termination event, terminate all processes, close queues, and
+            # wait for loading thread to end.
             stop.set()
             if self.nb_workers and proc_queue is not None:
                 # If nb_workers==0, proc_queue is just an alias to load_queue
-                if not proc_queue.empty():
-                    while not proc_queue.empty():
-                        proc_queue.get()
-                        proc_queue.task_done()
                 proc_queue.close()
-                proc_queue.join_thread()
             if load_queue is not None:
-                if not load_queue.empty():
-                    while not load_queue.empty():
-                        load_queue.get()
-                        load_queue.task_done()
                 load_queue.close()
-                load_queue.join_thread()
             for process in process_list:
                 if process.is_alive():
-                    process.join()
+                    process.terminate()
             if preload_thread is not None:
                 preload_thread.join()
     
@@ -137,16 +125,15 @@ class data_flow(object):
     
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, proc_queue,
-                            stop, stop_on_empty):
-        while not stop.is_set():
-            if self.shuffle:
-                indices = np.random.permutation(len(self))
-            else:
-                indices = np.arange(len(self))
-                
-            for b in range(self.num_batches):
-                try:
+    def _preload_subroutine(self, load_queue, proc_queue, stop):
+        try:
+            while not stop.is_set():
+                if self.shuffle:
+                    indices = np.random.permutation(len(self))
+                else:
+                    indices = np.arange(len(self))
+                    
+                for b in range(self.num_batches):
                     if not stop.is_set():
                         bs = self.batch_size
                         batch_indices = indices[b*bs:(b+1)*bs]
@@ -159,40 +146,20 @@ class data_flow(object):
                             # If there are no worker processes, preprocess
                             # the batch in the loader thread.
                             load_queue.put( self._process_batch(batch) )
-                except:
-                    stop.set()
-                    raise
-                
-            # Wait for all queued items to be processed and yielded, then exit.
-            if not self.loop_forever:
-                stop_on_empty.set()
-                load_queue.join()     # Wait for processing
-                proc_queue.join()     # Wait for yielding
-                stop.set()            # Set exit event
-                proc_queue.put(None)  # Stop blocking on get() in main thread
-                proc_queue.join()     # Wait for main thread to get None
+                    
+                if not self.loop_forever:
+                    break
+        except:
+            stop.set()
+            raise
                 
     ''' Process any loaded batches in the load queue and add them to the
         processed queue -- these are ready to yield. '''
-    def _process_subroutine(self, load_queue, proc_queue,
-                            stop, stop_on_empty):
+    def _process_subroutine(self, load_queue, proc_queue, stop):
         while not stop.is_set():
             try:
-                batch = load_queue.get(block=not stop_on_empty.is_set())
+                batch = load_queue.get()
                 proc_queue.put(self._process_batch(batch))
-                load_queue.task_done()
-            except queue.Empty:
-                # stop_on_empty is set; wait for all batches to be yielded.
-                #
-                # Wait for load_queue in case some processes have done get()
-                # and the queue is empty but task_done has not yet been called.
-                #
-                # Wait on proc_queue _after_ load_queue because all processes
-                # will have already put() into proc_queue after load_queue
-                # unblocks (they call task_done after put).
-                load_queue.join()
-                proc_queue.join()
-                stop.set()
             except:
                 stop.set()
                 raise
