@@ -2,16 +2,15 @@ import numpy as np
 import threading
 import multiprocessing
 import h5py
-#import bcolz
+import bcolz
 
 
 class data_flow(object):
     """
-    Given a list of array-like objects, data from the objects is read and
-    processed in a parallel thread. All objects are iterated in tandem.
-    
-    To do preprocessing of data, subclass this class and override the
-    _process_batch function.
+    Given a list of array-like objects, data from the objects is read in a
+    parallel thread and processed in the same parallel thread or in a set of
+    parallel processes. All objects are iterated in tandem (i.e. for a list
+    data=[A, B, C], a batch of size 1 would be [A[i], B[i], C[i]] for some i).
     
     data : A list of data arrays, each of equal length. When yielding a batch, 
         each element of the batch corresponds to each array in the data list.
@@ -24,15 +23,21 @@ class data_flow(object):
         order.
     loop_forever : If False, stop iteration at the end of an epoch (when all
         data has been yielded once).
+    preprocessor : The preprocessor function to call on a batch. As input,
+        takes a batch of the same arrangement as `data`.
     """
     
     def __init__(self, data, batch_size, nb_workers=1,
-                 shuffle=False, loop_forever=True):
+                 shuffle=False, loop_forever=True, preprocessor=None):
         self.data = data
         self.batch_size = batch_size
         self.nb_workers = nb_workers
         self.shuffle = shuffle
         self.loop_forever = loop_forever
+        if preprocessor is not None:
+            self._process_batch = preprocessor
+        else:
+            self._process_batch = lambda x: x   # Do nothing by default
         
         for d in self.data:
             assert(len(d)==len(data[0]))
@@ -115,14 +120,6 @@ class data_flow(object):
                     process.terminate()
             if preload_thread is not None:
                 preload_thread.join()
-    
-    ''' Do preprocessing on the batch here.
-        Subclass the class to customize this function.
-        
-        NOTE that a batch should not be None as this is used internally as a
-        signal to stop getting from proc_queue. '''
-    def _process_batch(self, batch):
-        return batch
     
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
