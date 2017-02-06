@@ -14,7 +14,17 @@ class data_flow(object):
     To do preprocessing of data, subclass this class and override the
     _process_batch function.
     
-    NOTE: if nb_workers > 1, data loading order is not preserved
+    data : A list of data arrays, each of equal length. When yielding a batch, 
+        each element of the batch corresponds to each array in the data list.
+    batch_size : The maximum number of elements to yield from each data array
+        in a batch. The actual batch size is the smallest of either this number
+        or the number of elements not yet yielded in the current epoch.
+    nb_workers : The number of parallel processes to do preprocessing of data
+        using the _process_batch function. NOTE that if nb_workers > 1, data loading is asynchronous!
+    shuffle : If True, access the elements of the data arrays in random 
+        order.
+    loop_forever : If False, stop iteration at the end of an epoch (when all
+        data has been yielded once).
     """
     
     def __init__(self, data, batch_size, nb_workers=1,
@@ -53,7 +63,7 @@ class data_flow(object):
             # Start the parallel data processing proccess(es)
             for i in range(self.nb_workers):
                 process_thread = multiprocessing.Process( \
-                    target=self._process_subroutine, 
+                    target=self._process_subroutine,
                     args=(load_queue, proc_queue, stop, stop_on_empty) )
                 process_thread.daemon = True
                 process_thread.start()
@@ -62,8 +72,8 @@ class data_flow(object):
             # Start the parallel loader thread.
             # (must be started AFTER processes to avoid copying it in fork())
             preload_thread = threading.Thread( \
-                target=self._preload_subroutine, args=(load_queue, proc_queue,
-                                                       stop, stop_on_empty))
+                target=self._preload_subroutine,
+                args=(load_queue, proc_queue, stop, stop_on_empty) )
             preload_thread.daemon = True
             preload_thread.start()
             
