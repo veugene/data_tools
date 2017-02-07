@@ -55,7 +55,7 @@ class data_flow(object):
     ''' Generate batches of processed data (output with labels) '''
     def flow(self):
         # Create a stop event to trigger on exceptions/interrupt/termination.
-        stop = multiprocessing.Event()
+        stop = threading.Event()
         
         # Prepare to start processes + thread.
         load_queue = None
