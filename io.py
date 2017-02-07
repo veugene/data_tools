@@ -1,8 +1,6 @@
 import numpy as np
 import threading
 import multiprocessing
-import h5py
-import bcolz
 import time
 
 
@@ -290,6 +288,7 @@ class h5py_array_writer(buffered_array_writer):
     
     def __init__(self, data_element_shape, dtype, batch_size, filename,
                  array_name, length=None, append=False, kwargs={}):
+        import h5py
         super(h5py_array_writer, self).__init__(None, data_element_shape,
                                                 dtype, batch_size, length)
         self.filename = filename
@@ -359,6 +358,7 @@ class bcolz_array_writer(buffered_array_writer):
     """
     
     def __init__(self, data_element_shape, dtype, batch_size, save_path, length=None, append=False, kwargs={}):
+        import bcolz
         super(bcolz_array_writer, self).__init__(None, data_element_shape, dtype, batch_size, length)
         self.save_path = save_pathsavepath
         self.kwargs = kwargs
