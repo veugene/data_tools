@@ -3,6 +3,7 @@ import threading
 import multiprocessing
 import h5py
 import bcolz
+import time
 
 
 class data_flow(object):
@@ -58,6 +59,7 @@ class data_flow(object):
         
         # Prepare to start processes + thread.
         load_queue = None
+        lock_load_queue = threading.Lock()
         proc_queue = None
         process_list = []
         preload_thread = None
@@ -88,7 +90,7 @@ class data_flow(object):
             # (must be started AFTER processes to avoid copying it in fork())
             preload_thread = threading.Thread( \
                 target=self._preload_subroutine,
-                args=(load_queue, proc_queue, stop) )
+                args=(load_queue, lock_load_queue, stop) )
             preload_thread.daemon = True
             preload_thread.start()
             
@@ -118,8 +120,9 @@ class data_flow(object):
                 # If nb_workers==0, proc_queue is just an alias to load_queue
                 proc_queue.close()
             if load_queue is not None:
-                load_queue.cancel_join_thread()
-                load_queue.close()
+                with lock_load_queue:
+                    load_queue.cancel_join_thread()
+                    load_queue.close()
             for process in process_list:
                 if process.is_alive():
                     process.terminate()
@@ -128,7 +131,7 @@ class data_flow(object):
     
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, proc_queue, stop):
+    def _preload_subroutine(self, load_queue, lock, stop):
         try:
             while not stop.is_set():
                 if self.shuffle:
@@ -137,12 +140,18 @@ class data_flow(object):
                     indices = np.arange(len(self))
                     
                 for b in range(self.num_batches):
-                    if not stop.is_set():
-                        bs = self.batch_size
-                        batch_indices = indices[b*bs:(b+1)*bs]
-                        batch = []
-                        for d in self.data:
-                            batch.append([d[i][...] for i in batch_indices])
+                    while load_queue.full():
+                        time.sleep(0.0001)
+                        if stop.is_set():
+                            return
+                    bs = self.batch_size
+                    batch_indices = indices[b*bs:(b+1)*bs]
+                    batch = []
+                    for d in self.data:
+                        batch.append([d[i][...] for i in batch_indices])
+                    with lock:
+                        if stop.is_set():
+                            return
                         if self.nb_workers > 0:
                             load_queue.put( batch )
                         else:
@@ -185,6 +194,7 @@ class buffered_array_writer(object):
     batch_size         : write the data to disk in batches of this size
     length             : dataset length (if None, expand it dynamically)
     """
+    
     def __init__(self, storage_array, data_element_shape, dtype, batch_size,
                  length=None):
         self.storage_array = storage_array
