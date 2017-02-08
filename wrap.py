@@ -24,15 +24,22 @@ class multi_source_array(object):
     class_list  : specifies class number for each source; same length as
         source_list
     shuffle     : randomize data access order within and across all sources
+    maxlen      : the maximum number of elements to take from each source; if
+        shuffle is False, a source is accessed as source[0:maxlen] and if
+        shuffle is True, a source is accessed as shuffle(source)[0:maxlen]
     """
     
-    def __init__(self, source_list, class_list=None, shuffle=False):
+    def __init__(self, source_list,
+                 class_list=None, shuffle=False, maxlen=None):
         self.source_list = source_list
         self.class_list = class_list
         self.shuffle = shuffle
+        self.maxlen = maxlen
+        if self.maxlen == None:
+            self.maxlen = np.inf
         self.num_items = 0
         for source in source_list:
-            self.num_items += len(source)
+            self.num_items += min(len(source), self.maxlen)
             
         # Ensure that all the data sources contain elements of the same shape
         # and data type
@@ -48,7 +55,11 @@ class multi_source_array(object):
         # Index the data sources
         self.index_pairs = []
         for i, source in enumerate(self.source_list):
-            for j in range(len(source)):
+            source_indices = np.arange(len(source))
+            if self.shuffle:
+                np.random.shuffle(source_indices)
+            source_indices = source_indices[:min(len(source), self.maxlen)]
+            for j in source_indices:
                 self.index_pairs.append((i, j))
         if self.shuffle==True:
             np.random.shuffle(self.index_pairs)
