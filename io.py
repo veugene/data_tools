@@ -57,7 +57,6 @@ class data_flow(object):
         
         # Prepare to start processes + thread.
         load_queue = None
-        lock_load_queue = threading.Lock()
         proc_queue = None
         process_list = []
         preload_thread = None
@@ -88,7 +87,7 @@ class data_flow(object):
             # (must be started AFTER processes to avoid copying it in fork())
             preload_thread = threading.Thread( \
                 target=self._preload_subroutine,
-                args=(load_queue, lock_load_queue, stop) )
+                args=(load_queue, stop) )
             preload_thread.daemon = True
             preload_thread.start()
             
@@ -118,9 +117,8 @@ class data_flow(object):
                 # If nb_workers==0, proc_queue is just an alias to load_queue
                 proc_queue.close()
             if load_queue is not None:
-                with lock_load_queue:
-                    load_queue.cancel_join_thread()
-                    load_queue.close()
+                load_queue.cancel_join_thread()
+                load_queue.close()
             for process in process_list:
                 if process.is_alive():
                     process.terminate()
@@ -129,7 +127,7 @@ class data_flow(object):
     
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, lock, stop):
+    def _preload_subroutine(self, load_queue, stop):
         try:
             while not stop.is_set():
                 if self.shuffle:
@@ -146,14 +144,13 @@ class data_flow(object):
                     batch = []
                     for d in self.data:
                         batch.append([d[i][...] for i in batch_indices])
-                    with lock:
-                        if stop.is_set(): return
-                        if self.nb_workers > 0:
-                            load_queue.put( batch )
-                        else:
-                            # If there are no worker processes, preprocess
-                            # the batch in the loader thread.
-                            load_queue.put( self._process_batch(batch) )
+                    if stop.is_set(): return
+                    if self.nb_workers > 0:
+                        load_queue.put( batch )
+                    else:
+                        # If there are no worker processes, preprocess
+                        # the batch in the loader thread.
+                        load_queue.put( self._process_batch(batch) )
                     
                 if not self.loop_forever:
                     break
