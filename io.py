@@ -149,10 +149,9 @@ class data_flow(object):
                     batch_indices = indices[b*bs:(b+1)*bs]
                     batch = []
                     for d in self.data:
-                        batch.append([d[i][...] for i in batch_indices])
+                        batch.append(d[batch_indices])
                     while not semaphore.acquire(timeout=0.001):
                         if stop.is_set(): return
-                    if stop.is_set(): return
                     if self.nb_proc_workers > 0:
                         load_queue.put( batch )
                     else:
