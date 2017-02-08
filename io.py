@@ -16,13 +16,15 @@ class data_flow(object):
     batch_size : The maximum number of elements to yield from each data array
         in a batch. The actual batch size is the smallest of either this number
         or the number of elements not yet yielded in the current epoch.
-    nb_workers : The number of parallel processes to do preprocessing of data
-        using the _process_batch function. If nb_workers is set to 0, no
-        parallel processes will be launched; instead, any preprocessing will be
-        done in the preload thread and data will have to pass through only one
-        queue rather than two queues. NOTE that if nb_workers > 1, data
-        processing is asynchronous and data will not be yielded in the order
-        that it is loaded!
+    nb_io_workers : The number of parallel threads to preload data. NOTE that
+        if nb_io_workers > 1, data is loaded asynchronously.
+    nb_proc_workers : The number of parallel processes to do preprocessing of
+        data using the _process_batch function. If nb_proc_workers is set to 0,
+        no parallel processes will be launched; instead, any preprocessing will
+        be done in the preload thread and data will have to pass through only
+        one queue rather than two queues. NOTE that if nb_proc_workers > 1,
+        data processing is asynchronous and data will not be yielded in the
+        order that it is loaded!
     shuffle : If True, access the elements of the data arrays in random 
         order.
     loop_forever : If False, stop iteration at the end of an epoch (when all
@@ -31,11 +33,12 @@ class data_flow(object):
         takes a batch of the same arrangement as `data`.
     """
     
-    def __init__(self, data, batch_size, nb_workers=0,
+    def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
                  shuffle=False, loop_forever=True, preprocessor=None):
         self.data = data
         self.batch_size = batch_size
-        self.nb_workers = nb_workers
+        self.nb_io_workers = nb_io_workers
+        self.nb_proc_workers = nb_proc_workers
         self.shuffle = shuffle
         self.loop_forever = loop_forever
         if preprocessor is not None:
@@ -57,6 +60,7 @@ class data_flow(object):
         
         # Prepare to start processes + thread.
         load_queue = None
+        load_queue_semaphore = None
         proc_queue = None
         process_list = []
         preload_thread = None
@@ -64,9 +68,10 @@ class data_flow(object):
             # Create the queues.
             #   NOTE: these can become corrupt on sub-process termination,
             #   so create them in flow() and let them die with the flow().
-            q_size = max(1, self.nb_workers)
+            q_size = max(self.nb_io_workers, self.nb_proc_workers)
             load_queue = multiprocessing.Queue(q_size)
-            if self.nb_workers > 0:
+            load_queue_semaphore = multiprocessing.Semaphore(q_size)
+            if self.nb_proc_workers > 0:
                 proc_queue = multiprocessing.Queue(q_size)
             else:
                 # If there are no worker processes, alias load_queue as
@@ -75,7 +80,7 @@ class data_flow(object):
                 proc_queue = load_queue
             
             # Start the parallel data processing proccess(es)
-            for i in range(self.nb_workers):
+            for i in range(self.nb_proc_workers):
                 process_thread = multiprocessing.Process( \
                     target=self._process_subroutine,
                     args=(load_queue, proc_queue, stop) )
@@ -87,7 +92,7 @@ class data_flow(object):
             # (must be started AFTER processes to avoid copying it in fork())
             preload_thread = threading.Thread( \
                 target=self._preload_subroutine,
-                args=(load_queue, stop) )
+                args=(load_queue, load_queue_semaphore, stop) )
             preload_thread.daemon = True
             preload_thread.start()
             
@@ -113,8 +118,9 @@ class data_flow(object):
             # Set termination event, terminate all processes, close queues, and
             # wait for loading thread to end.
             stop.set()
-            if self.nb_workers and proc_queue is not None:
-                # If nb_workers==0, proc_queue is just an alias to load_queue
+            if self.nb_proc_workers and proc_queue is not None:
+                # If nb_proc_workers==0, proc_queue is just an alias to
+                # load_queue
                 proc_queue.close()
             if load_queue is not None:
                 load_queue.cancel_join_thread()
@@ -127,7 +133,7 @@ class data_flow(object):
     
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, stop):
+    def _preload_subroutine(self, load_queue, semaphore, stop):
         try:
             while not stop.is_set():
                 if self.shuffle:
@@ -144,13 +150,16 @@ class data_flow(object):
                     batch = []
                     for d in self.data:
                         batch.append([d[i][...] for i in batch_indices])
+                    while not semaphore.acquire(timeout=0.001):
+                        if stop.is_set(): return
                     if stop.is_set(): return
-                    if self.nb_workers > 0:
+                    if self.nb_proc_workers > 0:
                         load_queue.put( batch )
                     else:
                         # If there are no worker processes, preprocess
                         # the batch in the loader thread.
                         load_queue.put( self._process_batch(batch) )
+                    semaphore.release()
                     
                 if not self.loop_forever:
                     break
