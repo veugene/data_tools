@@ -31,7 +31,7 @@ class data_flow(object):
         takes a batch of the same arrangement as `data`.
     """
     
-    def __init__(self, data, batch_size, nb_workers=1,
+    def __init__(self, data, batch_size, nb_workers=0,
                  shuffle=False, loop_forever=True, preprocessor=None):
         self.data = data
         self.batch_size = batch_size
@@ -139,17 +139,15 @@ class data_flow(object):
                     
                 for b in range(self.num_batches):
                     while load_queue.full():
-                        time.sleep(0.0001)
-                        if stop.is_set():
-                            return
+                        time.sleep(0.001)
+                        if stop.is_set(): return
                     bs = self.batch_size
                     batch_indices = indices[b*bs:(b+1)*bs]
                     batch = []
                     for d in self.data:
                         batch.append([d[i][...] for i in batch_indices])
                     with lock:
-                        if stop.is_set():
-                            return
+                        if stop.is_set(): return
                         if self.nb_workers > 0:
                             load_queue.put( batch )
                         else:
