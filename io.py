@@ -151,8 +151,12 @@ class data_flow(object):
                     for d in self.data:
                         batch.append(d[batch_indices])
                     while not semaphore.acquire(timeout=0.001):
+                        # Poll here in case more than one thread attempts to
+                        # acquire the semaphore while there is only one spot
+                        # left in the load_queue.
                         if stop.is_set(): return
                     if self.nb_proc_workers > 0:
+                        # If there are worker processes, they will preprocess.
                         load_queue.put( batch )
                     else:
                         # If there are no worker processes, preprocess
