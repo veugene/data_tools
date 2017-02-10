@@ -408,3 +408,78 @@ class bcolz_array_writer(buffered_array_writer):
             self.storage_array.flush()
             self.storage_array_ptr += self.buffer_ptr
             self.buffer_ptr = 0
+
+
+class zarr_array_writer(buffered_array_writer):
+    """
+    Given a data element shape and batch size, writes data to an HDF5 file
+    batch-wise. Data can be passed in any number of elements at a time.
+    
+    INPUTS
+    data_element_shape : shape of one input element
+    batch_size         : write the data to disk in batches of this size
+    filename           : name of file in which to store data
+    array_name         : zarr array path
+    length             : dataset length (if None, expand it dynamically)
+    append             : write files with append mode instead of write mode
+    kwargs             : dictionary of arguments to pass to zarr on dataset
+                         creation (if none, do blosc lz4 compression with
+                         batch_size chunk size)
+    """
+    
+    def __init__(self, data_element_shape, dtype, batch_size, filename,
+                 array_name, length=None, append=False, kwargs={}):
+        import h5py
+        super(h5py_array_writer, self).__init__(None, data_element_shape,
+                                                dtype, batch_size, length)
+        self.filename = filename
+        self.array_name = array_name
+        self.kwargs = kwargs
+        if self.kwargs=={}:
+            self.kwargs = {'chunks': (batch_size,)+data_element_shape,
+                           'compression': zarr.Blosc(cname='lz4',
+                                                     clevel=5,
+                                                     shuffle=1)}
+    
+        # Open the file for writing.
+        self.group = None
+        if append:
+            self.write_mode = 'a'
+        else:
+            self.write_mode = 'w'
+        try:
+            self.group = zarr.open_group(filename, self.write_mode)
+        except:
+            print("Error: failed to open file %s" % filename)
+            raise
+        
+        # Open an array interface (check if the array exists; if not, create it)
+        if self.length is None:
+            ds_args = (self.array_name, (1,)+self.data_element_shape)
+        else:
+            ds_args = (self.array_name, (self.length,)+self.data_element_shape)
+        try:
+            self.storage_array = self.group[self.array_name]
+            self.storage_array_ptr = len(self.storage_array)
+        except KeyError:
+            self.storage_array = self.group.create_dataset(*ds_args,
+                                                           dtype=self.dtype,
+                                                           **self.kwargs )
+            self.storage_array_ptr = 0
+            
+    ''' Flush the buffer. Resize the dataset, if needed. '''
+    def flush_buffer(self):
+        if self.buffer_ptr > 0:
+            end = self.storage_array_ptr+self.buffer_ptr
+            if self.length is None:
+                self.storage_array.resize( (end,)+self.data_element_shape )
+            self.storage_array[self.storage_array_ptr:end] = \
+                                                  self.buffer[:self.buffer_ptr]
+            self.storage_array_ptr += self.buffer_ptr
+            self.buffer_ptr = 0
+    
+    ''' Flush remaining data in the buffer to file and close the file. '''
+    def __del__(self):
+        self.flush_buffer()
+        # Zarr automatically flushes all modifications and does not expose
+        # the file handle so the file is not closed in this destructor.
