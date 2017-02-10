@@ -216,7 +216,8 @@ class buffered_array_writer(object):
     def flush_buffer(self):
         if self.buffer_ptr > 0:
             end = self.storage_array_ptr+self.buffer_ptr
-            self.storage_array[self.storage_array_ptr:end] = self.buffer[:self.buffer_ptr]
+            self.storage_array[self.storage_array_ptr:end] = \
+                                                  self.buffer[:self.buffer_ptr]
             self.storage_array_ptr += self.buffer_ptr
             self.buffer_ptr = 0
             
@@ -288,9 +289,9 @@ class h5py_array_writer(buffered_array_writer):
     array_name         : HDF5 array path
     length             : dataset length (if None, expand it dynamically)
     append             : write files with append mode instead of write mode
-    kwargs             : dictionary of arguments to pass to h5py on dataset creation
-                         (if none, do lzf compression with batch_size chunk
-                         size)
+    kwargs             : dictionary of arguments to pass to h5py on dataset
+                         creation (if none, do lzf compression with
+                         batch_size chunk size)
     """
     
     def __init__(self, data_element_shape, dtype, batch_size, filename,
@@ -352,7 +353,8 @@ class h5py_array_writer(buffered_array_writer):
 
 class bcolz_array_writer(buffered_array_writer):
     """
-    Given a data element shape and batch size, writes data to a bcolz file-set batch-wise. Data can be passed in any number of elements at a time.
+    Given a data element shape and batch size, writes data to a bcolz file-set
+    batch-wise. Data can be passed in any number of elements at a time.
     
     INPUTS
     data_element_shape : shape of one input element
@@ -360,17 +362,23 @@ class bcolz_array_writer(buffered_array_writer):
     save_path          : directory to save array in
     length             : dataset length (if None, expand it dynamically)
     append             : write files with append mode instead of write mode
-    kwargs             : dictionary of arguments to pass to bcolz on dataset creation
-                         (if none, do blosc compression with chunklen determined by the expected array length)
+    kwargs             : dictionary of arguments to pass to bcolz on dataset 
+                         creation (if none, do blosc compression with chunklen
+                         determined by the expected array length)
     """
     
-    def __init__(self, data_element_shape, dtype, batch_size, save_path, length=None, append=False, kwargs={}):
+    def __init__(self, data_element_shape, dtype, batch_size, save_path,
+                 length=None, append=False, kwargs={}):
         import bcolz
-        super(bcolz_array_writer, self).__init__(None, data_element_shape, dtype, batch_size, length)
+        super(bcolz_array_writer, self).__init__(None, data_element_shape,
+                                                 dtype, batch_size, length)
         self.save_path = save_pathsavepath
         self.kwargs = kwargs
         if self.kwargs=={}:
-            self.kwargs = {'expectedlen': length, 'cparams': bcolz.cparams(clevel=5, shuffle=True, cname='blosclz')}
+            self.kwargs = {'expectedlen': length,
+                           'cparams': bcolz.cparams(clevel=5,
+                                                    shuffle=True,
+                                                    cname='blosclz')}
     
         # Create the file-backed array, open for writing.
         if append:
@@ -378,7 +386,10 @@ class bcolz_array_writer(buffered_array_writer):
         else:
             self.write_mode = 'w'
         try:
-            self.storage_array = bcolz.zeros( shape=(0,)+data_element_shape, dtype=np.float32, rootdir=self.save_path, mode=self.write_mode,
+            self.storage_array = bcolz.zeros( shape=(0,)+data_element_shape,
+                                              dtype=np.float32,
+                                              rootdir=self.save_path,
+                                              mode=self.write_mode,
                                               **self.kwargs )
         except:
             print("Error: failed to create file-backed bcolz storage array.")
