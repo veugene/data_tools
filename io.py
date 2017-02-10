@@ -381,19 +381,25 @@ class bcolz_array_writer(buffered_array_writer):
                                                     cname='blosclz')}
     
         # Create the file-backed array, open for writing.
+        # (check if the array exists; if not, create it)
         if append:
-            self.write_mode = 'a'
-        else:
-            self.write_mode = 'w'
-        try:
-            self.storage_array = bcolz.zeros( shape=(0,)+data_element_shape,
-                                              dtype=np.float32,
-                                              rootdir=self.save_path,
-                                              mode=self.write_mode,
-                                              **self.kwargs )
-        except:
-            print("Error: failed to create file-backed bcolz storage array.")
-            raise
+            try:
+                self.storage = bcolz.open(self.save_path, mode='a')
+                self.storage_array_ptr = len(self.storage_array)
+            except FileNotFoundError:
+                append=False
+        if not append:
+            try:
+                self.storage_array = bcolz.zeros(shape=(0,)+data_element_shape,
+                                                 dtype=np.float32,
+                                                 rootdir=self.save_path,
+                                                 mode=self.write_mode,
+                                                 **self.kwargs )
+                self.storage_array_ptr = 0
+            except:
+                print("Error: failed to create file-backed bcolz storage 
+                       array.")
+                raise
             
     ''' Flush the buffer. '''
     def flush_buffer(self):
