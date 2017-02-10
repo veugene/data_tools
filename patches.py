@@ -84,7 +84,7 @@ class patch_generator(object):
             
 def create_dataset(save_path, patchsize, volume,
                    mask=None, class_list=None, random_order=True, batchsize=32,
-                   file_format='bcolz', kwargs={}, show_progress=False):    
+                   file_format='hdf5', kwargs={}, show_progress=False):    
     """
     Extract patches and save them to file, with one dataset/array/directory
     per class.
