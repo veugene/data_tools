@@ -46,15 +46,34 @@ class data_flow(object):
         else:
             self._process_batch = lambda x: x   # Do nothing by default
         
+        self.num_samples = len(data[0])
         for d in self.data:
-            assert(len(d)==len(data[0]))
-                   
-        self.num_batches = len(data[0])//self.batch_size
-        if len(data[0])%self.batch_size > 0:
+            assert(len(d)==self.num_samples)
+        
+        self.num_batches = self.num_samples//self.batch_size
+        if self.num_samples%self.batch_size > 0:
             self.num_batches += 1
         
     ''' Generate batches of processed data (output with labels) '''
     def flow(self):
+        # Create the generator that loads data (shared by all loading threads)
+        def load_generator():
+            if self.shuffle:
+                indices = np.random.permutation(len(self))
+            else:
+                indices = np.arange(len(self))
+            while 1:
+                for b in range(self.num_batches):
+                    bs = self.batch_size
+                    batch_indices = indices[b*bs:(b+1)*bs]
+                    batch = []
+                    for d in self.data:
+                        batch.append(d[batch_indices])
+                    yield batch
+                if not self.loop_forever:
+                    break
+        self._load_generator = load_generator()
+        
         # Create a stop event to trigger on exceptions/interrupt/termination.
         stop = threading.Event()
         
@@ -130,42 +149,33 @@ class data_flow(object):
                     process.terminate()
             if preload_thread is not None:
                 preload_thread.join()
-    
+            
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
     def _preload_subroutine(self, load_queue, semaphore, stop):
         try:
             while not stop.is_set():
-                if self.shuffle:
-                    indices = np.random.permutation(len(self))
-                else:
-                    indices = np.arange(len(self))
-                    
-                for b in range(self.num_batches):
-                    while load_queue.full():
-                        time.sleep(0.001)
-                        if stop.is_set(): return
-                    bs = self.batch_size
-                    batch_indices = indices[b*bs:(b+1)*bs]
-                    batch = []
-                    for d in self.data:
-                        batch.append(d[batch_indices])
-                    while not semaphore.acquire(timeout=0.001):
-                        # Poll here in case more than one thread attempts to
-                        # acquire the semaphore while there is only one spot
-                        # left in the load_queue.
-                        if stop.is_set(): return
-                    if self.nb_proc_workers > 0:
-                        # If there are worker processes, they will preprocess.
-                        load_queue.put( batch )
-                    else:
-                        # If there are no worker processes, preprocess
-                        # the batch in the loader thread.
-                        load_queue.put( self._process_batch(batch) )
-                    semaphore.release()
-                    
-                if not self.loop_forever:
+                while load_queue.full():
+                    time.sleep(0.001)
+                    if stop.is_set(): return
+                try:
+                    batch = next(self._load_generator)
+                except StopIteration:
+                    if self.loop_forever: raise
                     break
+                while not semaphore.acquire(timeout=0.001):
+                    # Poll here in case more than one thread attempts to
+                    # acquire the semaphore while there is only one spot
+                    # left in the load_queue.
+                    if stop.is_set(): return
+                if self.nb_proc_workers > 0:
+                    # If there are worker processes, they will preprocess.
+                    load_queue.put( batch )
+                else:
+                    # If there are no worker processes, preprocess
+                    # the batch in the loader thread.
+                    load_queue.put( self._process_batch(batch) )
+                semaphore.release()
         except:
             stop.set()
             raise
