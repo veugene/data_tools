@@ -54,6 +54,7 @@ class delayed_view(object):
         idx = self.arr_indices[int_key]
         if key_remainder is not None:
             idx = (idx,)+key_remainder
+        idx = int(idx)  # Some libraries don't like np.integer
         return self.arr[idx]
     
     def _get_block(self, values, key_remainder=None):
@@ -218,4 +219,5 @@ class multi_source_array(delayed_view):
         source_num, idx = self.index_pairs[int_key]
         if key_remainder is not None:
             idx = (idx,)+key_remainder
+        idx = int(idx)  # Some libraries don't like np.integer
         return self.source_list[source_num][idx]
