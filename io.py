@@ -397,8 +397,8 @@ class bcolz_array_writer(buffered_array_writer):
                                                  **self.kwargs )
                 self.storage_array_ptr = 0
             except:
-                print("Error: failed to create file-backed bcolz storage 
-                       array.")
+                print("Error: failed to create file-backed bcolz storage "
+                      "array.")
                 raise
             
     ''' Flush the buffer. '''
