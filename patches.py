@@ -116,6 +116,7 @@ def create_dataset(save_path, patchsize, volume,
         piter = patch_generator(**piter_kwargs)
         
         if show_progress:
+            import progressbar
             print("Working on class %d" % c)
             bar = progressbar.ProgressBar(maxval=len(piter)).start()
         
