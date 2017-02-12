@@ -67,9 +67,9 @@ class data_flow(object):
         # Create the generator that loads data (shared by all loading threads)
         def load_generator():
             if self.shuffle:
-                indices = self.rng.permutation(len(self))
+                indices = self.rng.permutation(self.num_samples)
             else:
-                indices = np.arange(len(self))
+                indices = np.arange(self.num_samples)
             while 1:
                 for b in range(self.num_batches):
                     bs = self.batch_size
@@ -133,6 +133,7 @@ class data_flow(object):
                         stop.set()
                         continue
                     batch = proc_queue.get()
+                    #print("DEBUG IO: ", np.unique(batch[1]))
                     yield batch
                     nb_yielded += 1
                     samples_yielded += len(batch[0])
@@ -204,7 +205,7 @@ class data_flow(object):
                 raise
             
     def __len__(self):
-        return len(self.data[0])
+        return self.num_batches
 
 
 
