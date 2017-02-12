@@ -19,7 +19,12 @@ def random_transform(x, y=None,
                      spline_warp=False,
                      warp_sigma=0.1,
                      warp_grid_size=3,
-                     crop_size=None):
+                     crop_size=None,
+                     rng=None):
+    
+    # Set random number generator
+    if rng is None:
+        rng = np.random.RandomState()
     
     # x is a single image, so we don't have batch dimension 
     assert(x.ndim == 3)
@@ -33,7 +38,8 @@ def random_transform(x, y=None,
     if spline_warp:
         warp_field = _gen_warp_field(shape=x.shape[-2:],
                                      sigma=warp_sigma,
-                                     grid_size=warp_grid_size)
+                                     grid_size=warp_grid_size,
+                                     rng=rng)
         x = _apply_warp(x, warp_field,
                         interpolator=sitk.sitkNearestNeighbor,
                         fill_mode=fill_mode,
@@ -58,27 +64,26 @@ def random_transform(x, y=None,
     if zoom_range[0] == 1 and zoom_range[1] == 1:
         zx, zy = 1, 1
     else:
-        zx, zy = np.random.uniform(zoom_range[0], zoom_range[1], 2)
+        zx, zy = rng.uniform(zoom_range[0], zoom_range[1], 2)
     zoom_matrix = np.array([[zx, 0, 0],
                             [0, zy, 0],
                             [0, 0, 1]])
     
     if rotation_range:
-        theta = np.pi / 180 * np.random.uniform(-rotation_range,
-                                                rotation_range)
+        theta = np.pi / 180 * rng.uniform(-rotation_range, rotation_range)
     else:
         theta = 0
     rotation_matrix = np.array([[np.cos(theta), -np.sin(theta), 0],
                                 [np.sin(theta), np.cos(theta), 0],
                                 [0, 0, 1]])
     if height_shift_range:
-        tx = np.random.uniform(-height_shift_range, height_shift_range) \
+        tx = rng.uniform(-height_shift_range, height_shift_range) \
                  * x.shape[img_row_index]
     else:
         tx = 0
 
     if width_shift_range:
-        ty = np.random.uniform(-width_shift_range, width_shift_range) \
+        ty = rng.uniform(-width_shift_range, width_shift_range) \
                  * x.shape[img_col_index]
     else:
         ty = 0
@@ -87,7 +92,7 @@ def random_transform(x, y=None,
                                    [0, 1, ty],
                                    [0, 0, 1]])
     if shear_range:
-        shear = np.random.uniform(-shear_range, shear_range)
+        shear = rng.uniform(-shear_range, shear_range)
     else:
         shear = 0
     shear_matrix = np.array([[1, -np.sin(shear), 0],
@@ -106,16 +111,17 @@ def random_transform(x, y=None,
                                     fill_mode=fill_mode, cval=cvalMask)
 
     if channel_shift_range != 0:
-        x = _random_channel_shift(x, channel_shift_range, img_channel_index)
+        x = _random_channel_shift(x, channel_shift_range, img_channel_index,
+                                  rng=rng)
 
     if horizontal_flip:
-        if np.random.random() < 0.5:
+        if rng.random_sample() < 0.5:
             x = _flip_axis(x, img_col_index)
             if y is not None:
                 y = _flip_axis(y, img_col_index)
 
     if vertical_flip:
-        if np.random.random() < 0.5:
+        if rng.random_sample() < 0.5:
             x = _flip_axis(x, img_row_index)
             if y is not None:
                 y = _flip_axis(y, img_row_index)
@@ -126,12 +132,12 @@ def random_transform(x, y=None,
         h, w = x.shape[img_row_index], x.shape[img_col_index]
 
         if crop[0] < h:
-            top = np.random.randint(h - crop[0])
+            top = rng.randint(h - crop[0])
         else:
             print('Data augmentation: Crop height >= image size')
             top, crop[0] = 0, h
         if crop[1] < w:
-            left = np.random.randint(w - crop[1])
+            left = rng.randint(w - crop[1])
         else:
             print('Data augmentation: Crop width >= image size')
             left, crop[1] = 0, w
@@ -175,11 +181,11 @@ def _apply_transform_matrix(x, transform_matrix, channel_index=0,
     return x_out
 
 
-def _random_channel_shift(x, intensity, channel_index=0):
+def _random_channel_shift(x, intensity, channel_index=0, rng=None):
     x_ = np.copy(x)
     x_ = np.rollaxis(x_, channel_index, 0)
     channel_images = [np.clip(x_channel + \
-                              np.random.uniform(-intensity, intensity),
+                              rng.uniform(-intensity, intensity),
                               np.min(x_), np.max(x_))      for x_channel in x_]
     x_out = np.stack(channel_images, axis=0)
     x_out = np.rollaxis(x_out, 0, channel_index+1)
@@ -195,7 +201,7 @@ def _flip_axis(x, axis):
     return x_out
 
 
-def _gen_warp_field(shape, sigma=0.1, grid_size=3):
+def _gen_warp_field(shape, sigma=0.1, grid_size=3, rng=None):
     # Initialize bspline transform
     args = shape+(sitk.sitkFloat32,)
     ref_image = sitk.Image(*args)
@@ -203,7 +209,7 @@ def _gen_warp_field(shape, sigma=0.1, grid_size=3):
 
     # Initialize shift in control points:
     # mesh size = number of control points - spline order
-    p = sigma * np.random.randn(grid_size+3, grid_size+3, 2)
+    p = sigma * rng.randn(grid_size+3, grid_size+3, 2)
 
     # Anchor the edges of the image
     p[:, 0, :] = 0
