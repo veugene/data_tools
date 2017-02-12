@@ -31,10 +31,14 @@ class data_flow(object):
         data has been yielded once).
     preprocessor : The preprocessor function to call on a batch. As input,
         takes a batch of the same arrangement as `data`.
+    rng : A numpy random number generator. The rng is used to determine data
+        shuffle order and is used to uniquely seed the numpy RandomState in
+        each parallel process (if any).
     """
     
     def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
-                 shuffle=False, loop_forever=True, preprocessor=None):
+                 shuffle=False, loop_forever=True, preprocessor=None,
+                 rng=None):
         self.data = data
         self.batch_size = batch_size
         self.nb_io_workers = nb_io_workers
@@ -44,7 +48,11 @@ class data_flow(object):
         if preprocessor is not None:
             self._process_batch = preprocessor
         else:
-            self._process_batch = lambda x: x   # Do nothing by default
+            self._process_batch = lambda x: x[0]   # Do nothing by default
+        if rng is None:
+            self.rng = np.random.RandomState()
+        else:
+            self.rng = rng
         
         self.num_samples = len(data[0])
         for d in self.data:
@@ -59,7 +67,7 @@ class data_flow(object):
         # Create the generator that loads data (shared by all loading threads)
         def load_generator():
             if self.shuffle:
-                indices = np.random.permutation(len(self))
+                indices = self.rng.permutation(len(self))
             else:
                 indices = np.arange(len(self))
             while 1:
@@ -100,9 +108,10 @@ class data_flow(object):
             
             # Start the parallel data processing proccess(es)
             for i in range(self.nb_proc_workers):
+                pseed = self.rng.randint(2**32, dtype=np.uint32)
                 process_thread = multiprocessing.Process( \
                     target=self._process_subroutine,
-                    args=(load_queue, proc_queue, stop) )
+                    args=(load_queue, proc_queue, stop, pseed))
                 process_thread.daemon = True
                 process_thread.start()
                 process_list.append(process_thread)
@@ -184,7 +193,8 @@ class data_flow(object):
                 
     ''' Process any loaded batches in the load queue and add them to the
         processed queue -- these are ready to yield. '''
-    def _process_subroutine(self, load_queue, proc_queue, stop):
+    def _process_subroutine(self, load_queue, proc_queue, stop, seed):
+        np.random.seed(seed)
         while not stop.is_set():
             try:
                 batch = load_queue.get()
