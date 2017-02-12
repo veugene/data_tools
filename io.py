@@ -116,6 +116,7 @@ class data_flow(object):
             preload_thread.start()
             
             # Yield batches fetched from the parallel process(es).
+            samples_yielded = 0
             nb_yielded = 0
             while not stop.is_set():
                 try:
@@ -125,6 +126,7 @@ class data_flow(object):
                     batch = proc_queue.get()
                     yield batch
                     nb_yielded += 1
+                    samples_yielded += len(batch[0])
                 except:
                     stop.set()
                     raise
