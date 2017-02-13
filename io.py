@@ -107,8 +107,9 @@ class data_flow(object):
                 proc_queue = load_queue
             
             # Start the parallel data processing proccess(es)
+            seed_base = self.rng.randint(self.nb_proc_workers, 2**16)
             for i in range(self.nb_proc_workers):
-                pseed = self.rng.randint(2**32, dtype=np.uint32)
+                pseed = seed_base - i
                 process_thread = multiprocessing.Process( \
                     target=self._process_subroutine,
                     args=(load_queue, proc_queue, stop, pseed))
