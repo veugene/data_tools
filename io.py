@@ -251,12 +251,12 @@ class buffered_array_writer(object):
     '''
     def buffered_write(self, data):
         # Verify data shape
-        if data.shape != self.data_element_shape \
-                                 and data.shape[1:] != self.data_element_shape:
+        if np.shape(data) != self.data_element_shape \
+                             and np.shape(data)[1:] != self.data_element_shape:
             raise ValueError("Error: input data has the wrong shape.")
-        if data.shape == self.data_element_shape:
+        if np.shape(data) == self.data_element_shape:
             data_len = 1
-        elif data[1:].shape == self.data_element_shape:
+        elif np.shape(data)[1:] == self.data_element_shape:
             data_len = len(data)
             
         # Stop when data length exceeded
