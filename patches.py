@@ -1,4 +1,5 @@
 import numpy as np
+import h5py
 from .io import (h5py_array_writer,
                  bcolz_array_writer)
 
