@@ -319,16 +319,20 @@ class h5py_array_writer(buffered_array_writer):
     """
     
     def __init__(self, data_element_shape, dtype, batch_size, filename,
-                 array_name, length=None, append=False, kwargs={}):
+                 array_name, length=None, append=False, kwargs=None):
         import h5py
         super(h5py_array_writer, self).__init__(None, data_element_shape,
                                                 dtype, batch_size, length)
         self.filename = filename
         self.array_name = array_name
         self.kwargs = kwargs
-        if self.kwargs=={}:
-            self.kwargs = {'chunks': (batch_size,)+data_element_shape,
-                           'compression': 'lzf'}
+        
+        # Set up array kwargs
+        self.arr_kwargs = {'chunks': (batch_size,)+data_element_shape,
+                           'compression': 'lzf',
+                           'dtype': dtype}
+        if kwargs is not None:
+            self.arr_kwargs.update(kwargs)
     
         # Open the file for writing.
         self.file = None
@@ -354,7 +358,7 @@ class h5py_array_writer(buffered_array_writer):
             self.storage_array = self.file.create_dataset( *ds_args,
                                dtype=self.dtype,
                                maxshape=(self.length,)+self.data_element_shape,
-                               **self.kwargs )
+                               **self.arr_kwargs )
             self.storage_array_ptr = 0
             
     ''' Flush the buffer. Resize the dataset, if needed. '''
@@ -396,13 +400,18 @@ class bcolz_array_writer(buffered_array_writer):
         import bcolz
         super(bcolz_array_writer, self).__init__(None, data_element_shape,
                                                  dtype, batch_size, length)
-        self.save_path = save_pathsavepath
+        self.save_path = save_path
         self.kwargs = kwargs
-        if self.kwargs=={}:
-            self.kwargs = {'expectedlen': length,
+        
+        # Set up array kwargs
+        self.arr_kwargs = {'expectedlen': length,
                            'cparams': bcolz.cparams(clevel=5,
                                                     shuffle=True,
-                                                    cname='blosclz')}
+                                                    cname='blosclz'),
+                           'dtype': dtype,
+                           'rootdir': save_path}
+        if kwargs is not None:
+            self.arr_kwargs.update(kwargs)
     
         # Create the file-backed array, open for writing.
         # (check if the array exists; if not, create it)
@@ -418,7 +427,7 @@ class bcolz_array_writer(buffered_array_writer):
                                                  dtype=np.float32,
                                                  rootdir=self.save_path,
                                                  mode=self.write_mode,
-                                                 **self.kwargs )
+                                                 **self.arr_kwargs )
                 self.storage_array_ptr = 0
             except:
                 print("Error: failed to create file-backed bcolz storage "
@@ -452,18 +461,27 @@ class zarr_array_writer(buffered_array_writer):
     """
     
     def __init__(self, data_element_shape, dtype, batch_size, filename,
-                 array_name, length=None, append=False, kwargs={}):
-        import h5py
-        super(h5py_array_writer, self).__init__(None, data_element_shape,
+                 array_name, length=None, append=False, kwargs=None):
+        import zarr
+        super(zarr_array_writer, self).__init__(None, data_element_shape,
                                                 dtype, batch_size, length)
         self.filename = filename
         self.array_name = array_name
         self.kwargs = kwargs
-        if self.kwargs=={}:
-            self.kwargs = {'chunks': (batch_size,)+data_element_shape,
-                           'compression': zarr.Blosc(cname='lz4',
-                                                     clevel=5,
-                                                     shuffle=1)}
+        
+        # Set up array kwargs
+        self.arr_kwargs = {'name': array_name,
+                           'chunks': (batch_size,)+data_element_shape,
+                           'compressor': zarr.Blosc(cname='lz4',
+                                                    clevel=5,
+                                                    shuffle=1),
+                           'dtype': dtype}
+        if self.length is None:
+            self.arr_kwargs['shape'] = (1,)+self.data_element_shape
+        else:
+            self.arr_kwargs['shape'] = (self.length,)+self.data_element_shape
+        if kwargs is not None:
+            self.arr_kwargs.update(kwargs)
     
         # Open the file for writing.
         self.group = None
@@ -486,9 +504,7 @@ class zarr_array_writer(buffered_array_writer):
             self.storage_array = self.group[self.array_name]
             self.storage_array_ptr = len(self.storage_array)
         except KeyError:
-            self.storage_array = self.group.create_dataset(*ds_args,
-                                                           dtype=self.dtype,
-                                                           **self.kwargs )
+            self.storage_array = self.group.create_dataset(**self.arr_kwargs)
             self.storage_array_ptr = 0
             
     ''' Flush the buffer. Resize the dataset, if needed. '''
