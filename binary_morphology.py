@@ -19,7 +19,8 @@ def binary_closing(input_image, spacing, radius, nb_workers=None):
                          nb_workers)
     return binary_operation(t, spacing, radius, 'erosion', nb_workers)
 
-def binary_operation(input_image, spacing, radius, operation, nb_workers=None):
+def binary_operation(input_image, spacing, radius, operation,
+                     flat_struct=False, nb_workers=None):
     """
     Binary operations in physical unit space.
     
@@ -38,7 +39,10 @@ def binary_operation(input_image, spacing, radius, operation, nb_workers=None):
     # (A boolean voxel-space array defining a ball in physical space)
     s_xdim = int(float(radius)/spacing[0])*2+1
     s_ydim = int(float(radius)/spacing[1])*2+1
-    s_zdim = int(float(radius)/spacing[2])*2+1
+    if input_is_flat or flat_struct:
+        s_zdim = 1
+    else:
+        s_zdim = int(float(radius)/spacing[2])*2+1
     structure = np.zeros((s_xdim,s_ydim,s_zdim), dtype=np.bool)
     cp = np.array([s_xdim//2, s_ydim//2, s_zdim//2])    # centerpoint
     for i in range(cp[0]+1):
@@ -153,4 +157,7 @@ def binary_operation(input_image, spacing, radius, operation, nb_workers=None):
         for queue in queue_list:
             queue.close()
             
+    if input_is_flat:
+        output_image = output_image[:,:,0]
+        
     return output_image
