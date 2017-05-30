@@ -38,6 +38,11 @@ class delayed_view(object):
         self.num_items = min(self.idx_max, len(arr))-self.idx_min
         assert(self.num_items >= 0)
         self.dtype = self.arr.dtype
+        try:
+            self.shape = arr.shape
+        except AttributeError:
+            self.shape = (len(arr),)+np.shape(arr[0])
+        self.ndim = len(self.shape)
             
         # Create index list
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
