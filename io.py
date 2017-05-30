@@ -76,7 +76,7 @@ class data_flow(object):
                     batch_indices = indices[b*bs:(b+1)*bs]
                     batch = []
                     for d in self.data:
-                        batch.append(d[batch_indices])
+                        batch.append(np.array(d[batch_indices]))
                     yield batch
                 if not self.loop_forever:
                     break
