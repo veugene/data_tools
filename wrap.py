@@ -139,6 +139,7 @@ class delayed_view(object):
         elif isinstance(key, slice):
             start = key.start if key.start is not None else 0
             stop = key.stop if key.stop is not None else self.num_items
+            stop = min(stop, self.num_items)
             step = key.step if key.step is not None else 1
             item = self._get_block(range(start, stop, step), key_remainder)
         elif hasattr(key, '__len__'):
