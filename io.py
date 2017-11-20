@@ -251,7 +251,7 @@ class buffered_array_writer(object):
     until buffer is full.
     '''
     def buffered_write(self, data):
-        # Verify data shape
+        # Verify data shape 
         if np.shape(data) != self.data_element_shape \
                              and np.shape(data)[1:] != self.data_element_shape:
             raise ValueError("Error: input data has the wrong shape.")
@@ -446,7 +446,7 @@ class bcolz_array_writer(buffered_array_writer):
 
 class zarr_array_writer(buffered_array_writer):
     """
-    Given a data element shape and batch size, writes data to an HDF5 file
+    Given a data element shape and batch size, writes data to a zarr file
     batch-wise. Data can be passed in any number of elements at a time.
     
     INPUTS
