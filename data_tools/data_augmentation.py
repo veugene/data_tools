@@ -258,9 +258,9 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
             print('Data augmentation: Crop width >= image size')
             left, crop[1] = 0, w
 
-        x = x[:, :, top:top+crop[0], left:left+crop[1]]
+        x = x[:, top:top+crop[0], left:left+crop[1]]
         if y is not None:
-            y = y[:, :, top:top+crop[0], left:left+crop[1]]
+            y = y[:, top:top+crop[0], left:left+crop[1]]
 
     if y is None:
         return x
