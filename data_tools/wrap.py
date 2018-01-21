@@ -205,6 +205,10 @@ class multi_source_array(delayed_view):
                 self.index_pairs.append((i, j))
         if self.shuffle==True:
             np.random.shuffle(self.index_pairs)
+            
+    def shuffle(self, random_seed=None):
+        rng = np.random.RandomState(random_seed)
+        rng.shuffle(self.index_pairs)
     
     def get_labels(self):
         labels = []

@@ -71,6 +71,28 @@ def __init__(self, arr, shuffle=False, idx_min=None, idx_max=None)
 * __shuffle__ : randomize data access order within and across all sources
 * __maxlen__ : the maximum number of elements to take from each source; if shuffle is * __False__, a source is accessed as source[0:maxlen] and if shuffle is True, a source is accessed as shuffle(source)[0:maxlen]
 
+#### Methods ####
+
+```python
+shuffle(random_seed)
+```
+
+An array can be reshuffled at any time with `shuffle()`. This function optionally takes a random seed as an argument:
+
+```python
+get_labels()
+```
+
+Retrieve the labels from the unified array. This is especially useful when the array is shuffled -- labels can be retrieved in the same shuffle order.
+
+A label is associated with each source array (see `class_list` argument), thus assuming one class per source array which can be useful for classification datasets.
+
+```python
+__len__()
+```
+
+Return the length of the unified array when calling `len(obj)` on a multi_source_array `obj`.
+
 #### Examples ####
 
 For some arrays `a1`, `a2`, and `a3`, an array-like object that concatenates the three arrays without preloading them into memory can be create with:
@@ -85,13 +107,36 @@ Access can optionally be shuffled across all arrays:
 msarr_shuffled = multi_source_array(source_list=[a1,a2,a3], shuffle=True)
 ```
 
+An array can be reshuffled at any time with `shuffle()`. This function optionally takes a random seed as an argument:
+
+```python
+msarr = multi_source_array(source_list=[a1,a2,a3])
+msarr.shuffle()        # Now shuffled.
+msarr.shuffle(1234)    # Now shuffled using random seed 1234.
+```
+
+Sometimes, it is useful to maintain the same shuffle order for multiple multi_source_array objects. This can be done as follows:
+
+```python
+# With some `random_seed`
+msarr_1 = multi_source_array(source_list=[a1,a2])
+msarr_2 = multi_source_array(source_list=[a2,a3])
+msarr_1.shuffle(random_seed)
+msarr_2.shuffle(random_seed)
+
+# Alternatively, a more direct hack can be used:
+msarr_1 = multi_source_array(source_list=[a1,a2], shuffle=True)
+msarr_2 = multi_source_array(source_list=[a2,a3])
+msarr_2.index_pairs = msarr_1.index_pairs
+```
+
 Especially since data access can be in shuffled order, it may be useful to keep track of labels associated with data elements. One can associate an integer label with any input array. For example, if `a1` and `a2` are both datasets containing examples of class 0 and `a3` contains examples of class 1, one can specify this in `multi_source_array` with a `class_list` like so:
 
 ```python
 msarr_shuffled = multi_source_array(source_list=[a1,a2,a3], class_list=[0,0,1], shuffle=True)
 ```
 
-The labels from the unified (concatenated) and shuffled array can then be retrieved thus:
+The labels from the unified (concatenated) and shuffled array can then be retrieved using `get_labels()`:
 
 ```python
 msarr_shuffled_labels = msarr_shuffled.get_labels()
@@ -265,7 +310,7 @@ Writes `data` to the target array, first passing the data through the buffer. Wi
 class h5py_array_writer(buffered_array_writer)
 ```
 
-Given a data element shape and batch size, writes data to an HDF5 file batch-wise. Data can be passed in any number of elements at a time.
+Given a data element shape and batch size, writes data to an HDF5 file batch-wise. Data can be passed in any number of elements at a time. A write is flushed only when the buffer is full, the writer is destroyed, or `flush_buffer()` is called.
 
 #### Arguments ####
 Class initialization uses the following arguments:
@@ -274,7 +319,7 @@ Class initialization uses the following arguments:
 def __init__(self, data_element_shape, dtype, batch_size, filename, array_name, length=None, append=False, kwargs=None)
 ```
 
-* _-data_element_shape__ : shape of one input element
+* __data_element_shape__ : shape of one input element
 * __batch_size__ : write the data to disk in batches of this size
 * __filename__: name of file in which to store data
 * __array_name__ : HDF5 array path
@@ -292,7 +337,7 @@ Forces a write of all data remanining in the buffer to the target array.
 ```python
 buffered_write(data)
 ```
-Writes `data` to the target array, first passing the data through the buffer. With any call of this function, `data` can have any number of elements.
+Writes `data` to the target array, first passing the data through the buffer. Can be called on `data` with any number of elements.
 
 ### Bcolz buffered array writer ###
 
@@ -300,7 +345,7 @@ Writes `data` to the target array, first passing the data through the buffer. Wi
 class bcolz_array_writer(buffered_array_writer)
 ```
 
-Given a data element shape and batch size, writes data to a bcolz file-set batch-wise. Data can be passed in any number of elements at a time.
+Given a data element shape and batch size, writes data to a bcolz file-set batch-wise. Data can be passed in any number of elements at a time. A write is flushed only when the buffer is full, the writer is destroyed, or `flush_buffer()` is called.
 
 #### Arguments ####
 Class initialization uses the following arguments:
@@ -334,7 +379,7 @@ Writes `data` to the target array, first passing the data through the buffer. Wi
 class zarr_array_writer(buffered_array_writer)
 ```
 
-Given a data element shape and batch size, writes data to a zarr file-set batch-wise. Data can be passed in any number of elements at a time.
+Given a data element shape and batch size, writes data to a zarr file-set batch-wise. Data can be passed in any number of elements at a time. A write is flushed only when the buffer is full, the writer is destroyed, or `flush_buffer()` is called.
 
 #### Arguments ####
 Class initialization uses the following arguments:
