@@ -48,7 +48,7 @@ class data_flow(object):
         if preprocessor is not None:
             self._process_batch = preprocessor
         else:
-            self._process_batch = lambda x: x[0]   # Do nothing by default
+            self._process_batch = lambda x: x   # Do nothing by default
         if rng is None:
             self.rng = np.random.RandomState()
         else:
