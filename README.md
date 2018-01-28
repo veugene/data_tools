@@ -174,7 +174,9 @@ def __init__(self, source_list, class_list=None, shuffle=False, maxlen=None)
 * __batch_size__ : The maximum number of elements to yield from each data array in a batch. The actual batch size is the smallest of either this number or the number of elements not yet yielded in the current epoch.
 * __nb_io_workers__ : The number of parallel threads to preload data. NOTE that if nb_io_workers > 1, data is loaded asynchronously.
 * __nb_proc_workers__ : The number of parallel processes to do preprocessing of data using the _process_batch function. If nb_proc_workers is set to 0, no parallel processes will be launched; instead, any preprocessing will be done in the preload thread and data will have to pass through only one queue rather than two queues. NOTE that if nb_proc_workers > 1, data processing is asynchronous and data will not be yielded in the order that it is loaded!
-* __shuffle__ : If True, access the elements of the data arrays in random order.
+* __sample_random__ : If True, sample the data in random order.
+* __sample_with_replacement__ : If True, sample data with replacement when doing random sampling.
+* __sample_weights__ : A list of relative importance weights for each element in the dataset, specifying the relative probability with which that element should be sampled, when using random sampling.
 * __loop_forever__ : If False, stop iteration at the end of an epoch (when all data has been yielded once).
 * __preprocessor__ : The preprocessor function to call on a batch. As input, takes a batch of the same arrangement as `data`.
 * __rng__ : A numpy random number generator. The rng is used to determine data shuffle order and is used to uniquely seed the numpy RandomState in each parallel process (if any).
@@ -198,7 +200,7 @@ Any data_flow object `obj` has a length attribute that specifies the number of m
 For some set of model inputs `X` and labels `Y`, iterative over batches of pairs from `X` and `Y` in shuffled order:
 
 ```python
-data_gen = data_flow(data=[X, Y], shuffle=True)
+data_gen = data_flow(data=[X, Y], sample_random=True)
 num_batches = len(data_flow)
 for i, batch in enumerate(data_flow.flow()):
     print("Yielded batch {} of {}".format(i+1, num_batches))
@@ -212,8 +214,8 @@ def preproc_func(batch):
     b0 /= 255.
     return b0, b1
     
-data_gen = data_flow(data=[X, Y], shuffle=True, preprocessor=preproc_func,
-                     nb_proc_workers=2)
+data_gen = data_flow(data=[X, Y], sample_random=True,
+                     preprocessor=preproc_func, nb_proc_workers=2)
 num_batches = len(data_flow)
 for i, batch in enumerate(data_flow.flow()):
     print("Yielded batch {} of {}".format(i+1, num_batches))

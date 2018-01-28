@@ -25,26 +25,40 @@ class data_flow(object):
         one queue rather than two queues. NOTE that if nb_proc_workers > 1,
         data processing is asynchronous and data will not be yielded in the
         order that it is loaded!
-    shuffle : If True, access the elements of the data arrays in random 
-        order.
     loop_forever : If False, stop iteration at the end of an epoch (when all
         data has been yielded once).
+    sample_random : If True, sample the data in random order.
+    sample_with_replacement : If True, sample data with replacement when doing
+        random sampling.
+    sample_weights : A list of relative importance weights for each element in
+        the dataset, specifying the relative probability with which that
+        element should be sampled, when using random sampling.
     preprocessor : The preprocessor function to call on a batch. As input,
         takes a batch of the same arrangement as `data`.
+    index_sampler : An iterator that returns array indices according
+        to some sampling strategy. By default, uses wrap.index_sampler,
+        initialized to do random sampling without replacement.
     rng : A numpy random number generator. The rng is used to determine data
         shuffle order and is used to uniquely seed the numpy RandomState in
         each parallel process (if any).
     """
     
     def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
-                 shuffle=False, loop_forever=True, preprocessor=None,
-                 rng=None):
+                 loop_forever=True, sample_random=False,
+                 sample_with_replacement=False, sample_weights=None,
+                 preprocessor=None, rng=None):
         self.data = data
         self.batch_size = batch_size
         self.nb_io_workers = nb_io_workers
         self.nb_proc_workers = nb_proc_workers
-        self.shuffle = shuffle
         self.loop_forever = loop_forever
+        self.sample_random = sample_random
+        self.sample_with_replacement = sample_with_replacement
+        self.sample_weights = sample_weights
+        if not sample_with_replacement and np.any(self.sample_weights==0):
+            raise ValueError("When sampling without replacement, sample "
+                             "weights must never be zero.")
+                             
         if preprocessor is not None:
             self._process_batch = preprocessor
         else:
@@ -66,14 +80,20 @@ class data_flow(object):
     def flow(self):
         # Create the generator that loads data (shared by all loading threads)
         def load_generator():
-            if self.shuffle:
-                indices = self.rng.permutation(self.num_samples)
-            else:
-                indices = np.arange(self.num_samples)
             while 1:
+                # Initialize index sampler at start of epoch.
+                sampler = iter(index_sampler( \
+                                      array_length=self.num_samples,
+                                      random=self.sample_random,
+                                      replacement=self.sample_with_replacement,
+                                      weights=self.sample_weights,
+                                      rng=self.rng))
+                
+                # Loop batchwise over the dataset.
                 for b in range(self.num_batches):
-                    bs = self.batch_size
-                    batch_indices = indices[b*bs:(b+1)*bs]
+                    bs = min(self.batch_size,
+                             self.num_samples-b*self.batch_size)
+                    batch_indices = [next(sampler) for _ in range(bs)]
                     batch = []
                     for d in self.data:
                         batch.append([np.array(d[int(i)]) \
@@ -135,7 +155,6 @@ class data_flow(object):
                         stop.set()
                         continue
                     batch = proc_queue.get()
-                    #print("DEBUG IO: ", np.unique(batch[1]))
                     yield batch
                     nb_yielded += 1
                     samples_yielded += len(batch[0])
@@ -208,7 +227,53 @@ class data_flow(object):
             
     def __len__(self):
         return self.num_batches
-
+        
+        
+class index_sampler(object):
+    """
+    An iterable that generates array indices according to some sampling
+    strategy.
+    
+    array_length : the length of the array to sample from - indicies are
+        generated in the range [0, array_length-1].
+    random : sample in random order if True.
+    replacement : when doing random sampling, sample with replacement if True;
+        when this is active, the iterator never stops iterating since it never
+        runs out of elements to sample.
+    weights : a list of relative importance weights for every index; when 
+        normalized, these determine the probability for each element of being
+        sampled.
+    rng : random number generator
+    """
+    def __init__(self, array_length, random=True, replacement=False,
+                 weights=None, rng=None):
+        self.array_length = array_length
+        self.random = random
+        self.replacement = replacement
+        self.weights = weights
+        if rng is None:
+            self.rng = np.random.RandomState()
+        else:
+            self.rng = rng
+        
+    def __iter__(self):
+        for idx in self._gen_idx():
+            yield idx
+            
+    def _gen_idx(self):   
+        if self.random:
+            normalized_weights = None
+            if self.weights is not None:
+                normalized_weights = np.array(self.weights) \
+                                     / float(np.sum(self.weights))
+            indices = self.rng.choice(range(self.array_length),
+                                      size=self.array_length,
+                                      replace=self.replacement,
+                                      p=normalized_weights)
+        else:
+            indices = list(range(self.array_length))
+        for idx in indices:
+            yield idx
 
 
 class buffered_array_writer(object):
