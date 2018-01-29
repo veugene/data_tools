@@ -63,7 +63,7 @@ Given a list of sources, create an array-like interface that combines the source
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, arr, shuffle=False, idx_min=None, idx_max=None)
+def __init__(self, source_list, class_list=None, shuffle=False, maxlen=None)
 ```
 
 * __source_list__ : list of sources to combine into one source
@@ -133,7 +133,9 @@ msarr_2.index_pairs = msarr_1.index_pairs
 Especially since data access can be in shuffled order, it may be useful to keep track of labels associated with data elements. One can associate an integer label with any input array. For example, if `a1` and `a2` are both datasets containing examples of class 0 and `a3` contains examples of class 1, one can specify this in `multi_source_array` with a `class_list` like so:
 
 ```python
-msarr_shuffled = multi_source_array(source_list=[a1,a2,a3], class_list=[0,0,1], shuffle=True)
+msarr_shuffled = multi_source_array(source_list=[a1,a2,a3],
+                                    class_list=[0,0,1],
+                                    shuffle=True)
 ```
 
 The labels from the unified (concatenated) and shuffled array can then be retrieved using `get_labels()`:
@@ -167,7 +169,10 @@ Given a list of array-like objects, data from the objects is read in a parallel 
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, source_list, class_list=None, shuffle=False, maxlen=None)
+def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
+             loop_forever=True, sample_random=False,
+             sample_with_replacement=False, sample_weights=None,
+             drop_incomplete_batches=False, preprocessor=None, rng=None)
 ```
 
 * __data__ : A list of data arrays, each of equal length. When yielding a batch,  each element of the batch corresponds to each array in the data list.
@@ -234,7 +239,13 @@ Data augmentation for 2D images using random image transformations. This code tr
 Transform a single input image (or input image and target image pair).
 
 ```python
-def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0., height_shift_range=0., shear_range=0., zoom_range=0., channel_shift_range=0., fill_mode='nearest', cval=0., cvalMask=0., horizontal_flip=False, vertical_flip=False, spline_warp=False, warp_sigma=0.1, warp_grid_size=3, crop_size=None, rng=None)
+def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
+                           height_shift_range=0., shear_range=0.,
+                           zoom_range=0., intensity_shift_range=0.,
+                           fill_mode='nearest', cval_x=0., cval_y=0.,
+                           horizontal_flip=False, vertical_flip=False,
+                           spline_warp=False, warp_sigma=0.1, warp_grid_size=3,
+                           crop_size=None, channel_axis=0, rng=None)
 ```
 
 #### Arguments ####
@@ -287,7 +298,8 @@ This is a generic base class. Given an array, data element shape, and batch size
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, storage_array, data_element_shape, dtype, batch_size, length=None)
+def __init__(self, storage_array, data_element_shape, dtype, batch_size,
+             length=None)
 ```
 
 * __storage_array__ : the array to write into
@@ -319,7 +331,8 @@ Given a data element shape and batch size, writes data to an HDF5 file batch-wis
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, data_element_shape, dtype, batch_size, filename, array_name, length=None, append=False, kwargs=None)
+def __init__(self, data_element_shape, dtype, batch_size, filename,
+             array_name, length=None, append=False, kwargs=None)
 ```
 
 * __data_element_shape__ : shape of one input element
@@ -354,7 +367,8 @@ Given a data element shape and batch size, writes data to a bcolz file-set batch
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, data_element_shape, dtype, batch_size, filename, array_name, length=None, append=False, kwargs=None)
+def __init__(self, data_element_shape, dtype, batch_size, save_path,
+             length=None, append=False, kwargs={})
 ```
 
 * __data_element_shape__ : shape of one input element
@@ -388,7 +402,8 @@ Given a data element shape and batch size, writes data to a zarr file-set batch-
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, data_element_shape, dtype, batch_size, filename, array_name, length=None, append=False, kwargs=None)
+def __init__(self, data_element_shape, dtype, batch_size, filename,
+             array_name, length=None, append=False, kwargs=None)
 ```
 
 * __data_element_shape__ : shape of one input element
@@ -430,7 +445,8 @@ This class creates a generator object which extract 2D patches from a slice or v
 Class initialization uses the following arguments:
 
 ```python
-def __init__(self, patchsize, source, binary_mask=None, random_order=False, mirrored=True, max_num=None)
+def __init__(self, patchsize, source, binary_mask=None,
+             random_order=False, mirrored=True, max_num=None)
 ```
 
 * __patchsize__ : edge size of square patches to extract (scalar)
@@ -445,7 +461,9 @@ def __init__(self, patchsize, source, binary_mask=None, random_order=False, mirr
 This is a convenience function to extract patches from a stack of images (and optionally, a corresponding stack target classification masks) and save them to a memory-mapped file. For each class, one dataset/array/directory is used.
 
 ```python
-def create_dataset(save_path, patchsize, volume, mask=None, class_list=None, random_order=True, batchsize=32, file_format='hdf5', kwargs={}, show_progress=False)
+def create_dataset(save_path, patchsize, volume,
+                   mask=None, class_list=None, random_order=True, batchsize=32,
+                   file_format='hdf5', kwargs={}, show_progress=False)
 ```
 
 #### Arguments ####
@@ -458,3 +476,4 @@ def create_dataset(save_path, patchsize, volume, mask=None, class_list=None, ran
 * __batchsize__ : the number of patches to write to disk at a time (affects write speed)
 * __file_format__ : 'bcolz', 'hdf5'
 * __kwargs__ : a dictionary of arguments to pass to the dataset_writer object corresponding to the file format
+* __show_progress__ :show a progressbar.
