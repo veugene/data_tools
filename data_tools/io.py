@@ -55,6 +55,8 @@ class data_flow(object):
         self.data = data
         self.batch_size = batch_size
         self.nb_io_workers = nb_io_workers
+        if not nb_io_workers>0:
+            raise ValueError("nb_io_workers must be 1 or more")
         self.nb_proc_workers = nb_proc_workers
         self.loop_forever = loop_forever
         self.sample_random = sample_random
@@ -83,39 +85,17 @@ class data_flow(object):
         
     ''' Generate batches of processed data (output with labels) '''
     def flow(self):
-        # Create the generator that loads data (shared by all loading threads)
-        def load_generator():
-            while 1:
-                # Initialize index sampler at start of epoch.
-                sampler = iter(index_sampler( \
-                                      array_length=self.num_samples,
-                                      random=self.sample_random,
-                                      replacement=self.sample_with_replacement,
-                                      weights=self.sample_weights,
-                                      rng=self.rng))
-                
-                # Loop batchwise over the dataset.
-                for b in range(self.num_batches):
-                    bs = min(self.batch_size,
-                             self.num_samples-b*self.batch_size)
-                    batch_indices = [next(sampler) for _ in range(bs)]
-                    batch = []
-                    for d in self.data:
-                        batch.append([np.array(d[int(i)]) \
-                                               for i in batch_indices])
-                    yield batch
-                if not self.loop_forever:
-                    break
-        self._load_generator = load_generator()
-        
         # Create a stop event to trigger on exceptions/interrupt/termination.
         stop = multiprocessing.Event()
         
         # Prepare to start processes + thread.
         load_queue = None
         proc_queue = None
+        idx_queue = None
+        index_thread = None
         process_list = []
-        preload_thread = None
+        preload_list = []
+        
         try:
             # Create the queues.
             #   NOTE: these can become corrupt on sub-process termination,
@@ -141,26 +121,34 @@ class data_flow(object):
                 process_thread.start()
                 process_list.append(process_thread)
                 
+            # Start the data index provider thread.
+            idx_queue = queue.Queue(q_size)
+            index_thread = threading.Thread( \
+                target=self._index_provider,
+                args=(idx_queue, stop) )
+            index_thread.daemon = True
+            index_thread.start()
+                
             # Start the parallel loader thread.
             # (must be started AFTER processes to avoid copying it in fork())
-            preload_thread = threading.Thread( \
-                target=self._preload_subroutine,
-                args=(load_queue, stop) )
-            preload_thread.daemon = True
-            preload_thread.start()
+            for i in range(self.nb_io_workers):
+                preload_thread = threading.Thread( \
+                    target=self._preload_subroutine,
+                    args=(load_queue, idx_queue, stop) )
+                preload_thread.daemon = True
+                preload_thread.start()
+                preload_list.append(preload_thread)
             
             # Yield batches fetched from the parallel process(es).
-            samples_yielded = 0
             nb_yielded = 0
             while not stop.is_set():
                 try:
                     if not self.loop_forever and nb_yielded==self.num_batches:
                         stop.set()
-                        continue
+                        break
                     batch = proc_queue.get()
                     yield batch
                     nb_yielded += 1
-                    samples_yielded += len(batch[0])
                 except:
                     stop.set()
                     raise
@@ -173,8 +161,9 @@ class data_flow(object):
             # Set termination event, wait for all threads and processes to
             # exit, then close queues.
             stop.set()
-            if preload_thread is not None:
-                preload_thread.join()
+            index_thread.join()
+            for thread in preload_list:
+                thread.join()
             for process in process_list:
                 process.join()
             if self.nb_proc_workers and proc_queue is not None:
@@ -183,19 +172,60 @@ class data_flow(object):
                 proc_queue.close()
             if load_queue is not None:
                 load_queue.close()
+                
+    ''' Generate the indices to for each batch of data. '''
+    def _index_provider(self, idx_queue, stop):
+        while not stop.is_set():
+            # Initialize index sampler at start of epoch.
+            sampler = iter(\
+                index_sampler(array_length=self.num_samples,
+                              random=self.sample_random,
+                              replacement=self.sample_with_replacement,
+                              weights=self.sample_weights,
+                              rng=self.rng))
+            
+            # Loop batchwise over the dataset.
+            for b in range(self.num_batches):
+                bs = min(self.batch_size,
+                            self.num_samples-b*self.batch_size)
+                try:
+                    batch_indices = [next(sampler) for _ in range(bs)]
+                except:
+                    stop.set()
+                    raise()
+                put_successful = False
+                while not put_successful:
+                    try:
+                        idx_queue.put(batch_indices, timeout=0.001)
+                        put_successful = True
+                    except queue.Full:
+                        put_successful=False
+                    except:
+                        stop.set()
+                        raise
+                    if stop.is_set(): return
+            if not self.loop_forever:
+                return
             
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, stop):
+    def _preload_subroutine(self, load_queue, idx_queue, stop):
         while not stop.is_set():
-            try:
-                batch = next(self._load_generator)
-            except StopIteration:
-                if self.loop_forever: raise
-                return
-            except:
-                stop.set()
-                raise
+            batch_indices = None
+            while batch_indices is None:
+                try:
+                    batch_indices = idx_queue.get(timeout=0.001)
+                except queue.Empty:
+                    pass
+                except:
+                    stop.set()
+                    raise
+                if stop.is_set(): return
+            # Assuming that if the user chose to have more than one loader
+            # thread, data access is known to be threadsafe.
+            batch = []
+            for d in self.data:
+                batch.append([np.array(d[int(i)]) for i in batch_indices])
             if self.nb_proc_workers==0:
                 # If there are no worker processes, preprocess the batch
                 # in the loader thread.
