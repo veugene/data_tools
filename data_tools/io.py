@@ -1,7 +1,12 @@
-import numpy as np
+import time
 import threading
 import multiprocessing
-import time
+try:
+    import queue            # python 3
+except ImportError:
+    import Queue as queue   # python 2
+
+import numpy as np
 
 
 class data_flow(object):
@@ -104,11 +109,10 @@ class data_flow(object):
         self._load_generator = load_generator()
         
         # Create a stop event to trigger on exceptions/interrupt/termination.
-        stop = threading.Event()
+        stop = multiprocessing.Event()
         
         # Prepare to start processes + thread.
         load_queue = None
-        load_queue_semaphore = None
         proc_queue = None
         process_list = []
         preload_thread = None
@@ -118,7 +122,6 @@ class data_flow(object):
             #   so create them in flow() and let them die with the flow().
             q_size = max(self.nb_io_workers, self.nb_proc_workers)
             load_queue = multiprocessing.Queue(q_size)
-            load_queue_semaphore = multiprocessing.Semaphore(q_size)
             if self.nb_proc_workers > 0:
                 proc_queue = multiprocessing.Queue(q_size)
             else:
@@ -142,7 +145,7 @@ class data_flow(object):
             # (must be started AFTER processes to avoid copying it in fork())
             preload_thread = threading.Thread( \
                 target=self._preload_subroutine,
-                args=(load_queue, load_queue_semaphore, stop) )
+                args=(load_queue, stop) )
             preload_thread.daemon = True
             preload_thread.start()
             
@@ -167,63 +170,94 @@ class data_flow(object):
         finally:
             # Clean up, whether there was an exception or not.
             #
-            # Set termination event, terminate all processes, close queues, and
-            # wait for loading thread to end.
+            # Set termination event, wait for all threads and processes to
+            # exit, then close queues.
             stop.set()
+            if preload_thread is not None:
+                preload_thread.join()
+            for process in process_list:
+                process.join()
             if self.nb_proc_workers and proc_queue is not None:
                 # If nb_proc_workers==0, proc_queue is just an alias to
                 # load_queue
                 proc_queue.close()
             if load_queue is not None:
-                load_queue.cancel_join_thread()
                 load_queue.close()
-            for process in process_list:
-                if process.is_alive():
-                    process.terminate()
-            if preload_thread is not None:
-                preload_thread.join()
             
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, semaphore, stop):
-        try:
-            while not stop.is_set():
-                while load_queue.full():
-                    time.sleep(0.001)
-                    if stop.is_set(): return
+    def _preload_subroutine(self, load_queue, stop):
+        while not stop.is_set():
+            try:
+                batch = next(self._load_generator)
+            except StopIteration:
+                if self.loop_forever: raise
+                return
+            except:
+                stop.set()
+                raise
+            if self.nb_proc_workers==0:
+                # If there are no worker processes, preprocess the batch
+                # in the loader thread.
                 try:
-                    batch = next(self._load_generator)
-                except StopIteration:
-                    if self.loop_forever: raise
-                    break
-                while not semaphore.acquire(timeout=0.001):
-                    # Poll here in case more than one thread attempts to
-                    # acquire the semaphore while there is only one spot
-                    # left in the load_queue.
-                    if stop.is_set(): return
-                if self.nb_proc_workers > 0:
-                    # If there are worker processes, they will preprocess.
-                    load_queue.put( batch )
-                else:
-                    # If there are no worker processes, preprocess
-                    # the batch in the loader thread.
-                    load_queue.put( self._process_batch(batch) )
-                semaphore.release()
-        except:
-            stop.set()
-            raise
+                    batch = self._process_batch(batch)
+                except:
+                    stop.set()
+                    raise
+                if stop.is_set(): return
+            put_successful = False
+            while not put_successful:
+                # Poll to allow graceful termination.
+                try:
+                    load_queue.put(batch, timeout=0.001)
+                    put_successful = True
+                except queue.Full:
+                    put_successful = False
+                except:
+                    stop.set()
+                    raise
+                if stop.is_set(): return
                 
     ''' Process any loaded batches in the load queue and add them to the
         processed queue -- these are ready to yield. '''
     def _process_subroutine(self, load_queue, proc_queue, stop, seed):
         np.random.seed(seed)
-        while not stop.is_set():
-            try:
-                batch = load_queue.get()
-                proc_queue.put(self._process_batch(batch))
-            except:
-                stop.set()
-                raise
+        try:
+            while not stop.is_set():
+                batch = None
+                while batch is None:
+                    # Poll to allow graceful termination.
+                    try:
+                        batch = load_queue.get(timeout=0.001)
+                    except queue.Empty:
+                        pass
+                    except:
+                        stop.set()
+                        raise
+                    if stop.is_set(): return
+                try:
+                    batch_processed = self._process_batch(batch)
+                except:
+                    stop.set()
+                    raise
+                if stop.is_set(): return
+                put_successful = False
+                while not put_successful:
+                    # Poll to allow graceful termination.
+                    try:
+                        proc_queue.put(batch_processed, timeout=0.001)
+                        put_successful = True
+                    except queue.Full:
+                        put_successful = False
+                    except:
+                        stop.set()
+                        raise
+                    if stop.is_set(): return
+        except:
+            stop.set()
+            load_queue.cancel_join_thread()
+            proc_queue.cancel_join_thread()
+            raise
             
     def __len__(self):
         return self.num_batches
