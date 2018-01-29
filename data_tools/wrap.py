@@ -51,6 +51,7 @@ class delayed_view(object):
     
     def __iter__(self):
         for idx in self.arr_indices:
+            idx = int(idx)  # Some libraries don't like np.integer
             yield self.arr[idx]
             
     def _get_element(self, int_key, key_remainder=None):
