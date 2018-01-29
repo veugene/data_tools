@@ -177,6 +177,7 @@ def __init__(self, source_list, class_list=None, shuffle=False, maxlen=None)
 * __sample_random__ : If True, sample the data in random order.
 * __sample_with_replacement__ : If True, sample data with replacement when doing random sampling.
 * __sample_weights__ : A list of relative importance weights for each element in the dataset, specifying the relative probability with which that element should be sampled, when using random sampling.
+* __drop_incomplete_batches__ : If true, drops batches smaller than the batch size. If the dataset size is not divisible by the batch size, then when sampling without replacement, there is one such batch per epoch.
 * __loop_forever__ : If False, stop iteration at the end of an epoch (when all data has been yielded once).
 * __preprocessor__ : The preprocessor function to call on a batch. As input, takes a batch of the same arrangement as `data`.
 * __rng__ : A numpy random number generator. The rng is used to determine data shuffle order and is used to uniquely seed the numpy RandomState in each parallel process (if any).

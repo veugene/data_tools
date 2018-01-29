@@ -38,6 +38,9 @@ class data_flow(object):
     sample_weights : A list of relative importance weights for each element in
         the dataset, specifying the relative probability with which that
         element should be sampled, when using random sampling.
+    drop_incomplete_batches : If true, drops batches smaller than the batch
+        size. If the dataset size is not divisible by the batch size, then when
+        sampling without replacement, there is one such batch per epoch.
     preprocessor : The preprocessor function to call on a batch. As input,
         takes a batch of the same arrangement as `data`.
     index_sampler : An iterator that returns array indices according
@@ -51,7 +54,7 @@ class data_flow(object):
     def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
                  loop_forever=True, sample_random=False,
                  sample_with_replacement=False, sample_weights=None,
-                 preprocessor=None, rng=None):
+                 drop_incomplete_batches=False, preprocessor=None, rng=None):
         self.data = data
         self.batch_size = batch_size
         self.nb_io_workers = nb_io_workers
@@ -62,6 +65,7 @@ class data_flow(object):
         self.sample_random = sample_random
         self.sample_with_replacement = sample_with_replacement
         self.sample_weights = sample_weights
+        self.drop_incomplete_batches = drop_incomplete_batches
         if not sample_with_replacement and np.any(self.sample_weights==0):
             raise ValueError("When sampling without replacement, sample "
                              "weights must never be zero.")
@@ -80,7 +84,7 @@ class data_flow(object):
             assert(len(d)==self.num_samples)
         
         self.num_batches = self.num_samples//self.batch_size
-        if self.num_samples%self.batch_size > 0:
+        if self.num_samples%batch_size > 0 and not drop_incomplete_batches:
             self.num_batches += 1
         
     ''' Generate batches of processed data (output with labels) '''
@@ -188,6 +192,8 @@ class data_flow(object):
             for b in range(self.num_batches):
                 bs = min(self.batch_size,
                             self.num_samples-b*self.batch_size)
+                if self.drop_incomplete_batches and bs < self.batch_size:
+                    continue
                 try:
                     batch_indices = [next(sampler) for _ in range(bs)]
                 except:
