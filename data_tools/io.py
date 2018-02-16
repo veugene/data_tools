@@ -52,7 +52,7 @@ class data_flow(object):
     """
     
     def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
-                 loop_forever=True, sample_random=False,
+                 loop_forever=False, sample_random=False,
                  sample_with_replacement=False, sample_weights=None,
                  drop_incomplete_batches=False, preprocessor=None, rng=None):
         self.data = data
