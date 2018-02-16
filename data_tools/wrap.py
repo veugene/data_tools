@@ -232,3 +232,78 @@ class multi_source_array(delayed_view):
             idx = (idx,)+key_remainder
         idx = int(idx)  # Some libraries don't like np.integer
         return self.source_list[source_num][idx]
+
+
+class sample_iterator(object):
+    """
+    Given an array, iterate through samples from that array.
+    
+    arr : the length of the array to sample from - indicies are
+        generated in the range [0, array_length-1].
+    max_iterations : the maximum number of iterations before stopping; if set
+        to 'infinite', the iterator will sample endlessly.
+    sample_random : sample in random order if True.
+    sample_replacement : when doing random sampling, sample with replacement 
+        if True; when this is active, the iterator never stops iterating since
+        it never runs out of elements to sample.
+    sample_weights : a list of relative importance weights for every index;
+        when  normalized, these determine the probability for each element
+        of being sampled. These are automatically normalized.
+    rng : random number generator
+    """
+    def __init__(self, arr, max_iterations=None, sample_random=False,
+                 sample_with_replacement=False, sample_weights=None):
+        self.arr = arr
+        self.max_iterations = max_iterations
+        self.sample_random = sample_random
+        self.sample_with_replacement = sample_with_replacement
+        self.sample_weights = sample_weights
+        if rng is None:
+            self.rng = np.random.RandomState()
+        else:
+            self.rng = rng
+        self._iter_count = 0
+        self._index_generator = None
+        
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        if self._iter_count==0:
+            self._index_generator = self._generate_indices()
+        if self.max_iterations is not None:
+            if self._iter_count >= self.max_iterations:
+                raise StopIteration
+        if self._iter_count==len(self.arr):
+            raise StopIteration
+        idx = next(self._index_generator)
+        sample = self.arr[idx]
+        return sample
+    
+    def next(self):
+        return __next__()
+    
+    def _generate_indices(self):
+        if self.sample_random:
+            normalized_weights = None
+            if self.sample_weights is not None:
+                normalized_weights = np.array(self.sample_weights) \
+                                     / float(np.sum(self.sample_weights))
+            indices = self.rng.choice(range(len(self.arr)),
+                                      size=len(self.arr),
+                                      replace=self.sample_with_replacement,
+                                      p=normalized_weights)
+        else:
+            indices = list(range(len(self.arr)))
+        for idx in indices:
+            yield idx
+            
+    def __len__(self):
+        if self.max_iterations=='infinite':
+            raise TypeError("Object of type "
+                            "\'data_tools.wrap.iterate_samples\' has no "
+                            "len() when initialized with \'infinite\' "
+                            "max_iterations.")
+        if self.max_iterations is not None:
+            return min(self.max_iterations, len(self.arr))
+        return len(self.arr)

@@ -8,6 +8,8 @@ except ImportError:
 
 import numpy as np
 
+from .wrap import sample_iterator
+
 
 class data_flow(object):
     """
@@ -16,8 +18,10 @@ class data_flow(object):
     parallel processes. All objects are iterated in tandem (i.e. for a list
     data=[A, B, C], a batch of size 1 would be [A[i], B[i], C[i]] for some i).
     
-    data : A list of data arrays, each of equal length. When yielding a batch, 
-        each element of the batch corresponds to each array in the data list.
+    data : A list of data arrays. When yielding a batch, each element of the
+        batch corresponds to each array in the data list. The number of 
+        elements read from each array is limited to the shortest array 
+        (except when loop_forever is True).
     batch_size : The maximum number of elements to yield from each data array
         in a batch. The actual batch size is the smallest of either this number
         or the number of elements not yet yielded in the current epoch.
@@ -32,7 +36,8 @@ class data_flow(object):
         order that it is loaded!
     loop_forever : If False, stop iteration at the end of an epoch (when all
         data has been yielded once).
-    sample_random : If True, sample the data in random order.
+    sample_random : If True, sample the data in random order. Only applied to
+        array type data.
     sample_with_replacement : If True, sample data with replacement when doing
         random sampling.
     sample_weights : A list of relative importance weights for each element in
@@ -43,9 +48,6 @@ class data_flow(object):
         sampling without replacement, there is one such batch per epoch.
     preprocessor : The preprocessor function to call on a batch. As input,
         takes a batch of the same arrangement as `data`.
-    index_sampler : An iterator that returns array indices according
-        to some sampling strategy. By default, uses wrap.index_sampler,
-        initialized to do random sampling without replacement.
     rng : A numpy random number generator. The rng is used to determine data
         shuffle order and is used to uniquely seed the numpy RandomState in
         each parallel process (if any).
@@ -56,6 +58,7 @@ class data_flow(object):
                  sample_with_replacement=False, sample_weights=None,
                  drop_incomplete_batches=False, preprocessor=None, rng=None):
         self.data = data
+        self._data_iterators = []
         self.batch_size = batch_size
         self.nb_io_workers = nb_io_workers
         if not nb_io_workers>0:
@@ -79,23 +82,39 @@ class data_flow(object):
         else:
             self.rng = rng
         
-        self.num_samples = len(data[0])
-        for d in self.data:
-            assert(len(d)==self.num_samples)
-        
-        self.num_batches = self.num_samples//self.batch_size
-        if self.num_samples%batch_size > 0 and not drop_incomplete_batches:
-            self.num_batches += 1
+        self.min_data_length = min([len(d) for d in self.data])    
+        if self.loop_forever:
+            self.num_batches = None
+        else:
+            self.num_batches = self.min_data_length//self.batch_size
+            if self.min_data_length%batch_size > 0:
+                if not self.drop_incomplete_batches:
+                    self.num_batches += 1
+            
+    def __iter__(self):
+        return self.flow()
         
     ''' Generate batches of processed data (output with labels) '''
     def flow(self):
+        # Wrap data in iterators.
+        for d in self.data:
+            if self.loop_forever
+                max_iterations = 'infinite'
+            else:
+                max_iterations = self.min_data_length
+            d_iter = sample_iterator(d,
+                          max_iterations=max_iterations,
+                          sample_random=self.sample_random,
+                          sample_with_replacement=self.sample_with_replacement,
+                          sample_weights=self.sample_weights)
+            self._data_iterators.append(d_iter)
+        
         # Create a stop event to trigger on exceptions/interrupt/termination.
         stop = multiprocessing.Event()
         
         # Prepare to start processes + thread.
         load_queue = None
         proc_queue = None
-        idx_queue = None
         index_thread = None
         process_list = []
         preload_list = []
@@ -125,20 +144,12 @@ class data_flow(object):
                 process_thread.start()
                 process_list.append(process_thread)
                 
-            # Start the data index provider thread.
-            idx_queue = queue.Queue(q_size)
-            index_thread = threading.Thread( \
-                target=self._index_provider,
-                args=(idx_queue, stop) )
-            index_thread.daemon = True
-            index_thread.start()
-                
             # Start the parallel loader thread.
             # (must be started AFTER processes to avoid copying it in fork())
             for i in range(self.nb_io_workers):
                 preload_thread = threading.Thread( \
                     target=self._preload_subroutine,
-                    args=(load_queue, idx_queue, stop) )
+                    args=(load_queue, stop) )
                 preload_thread.daemon = True
                 preload_thread.start()
                 preload_list.append(preload_thread)
@@ -165,7 +176,6 @@ class data_flow(object):
             # Set termination event, wait for all threads and processes to
             # exit, then close queues.
             stop.set()
-            index_thread.join()
             for thread in preload_list:
                 thread.join()
             for process in process_list:
@@ -176,62 +186,22 @@ class data_flow(object):
                 proc_queue.close()
             if load_queue is not None:
                 load_queue.close()
-                
-    ''' Generate the indices to for each batch of data. '''
-    def _index_provider(self, idx_queue, stop):
-        while not stop.is_set():
-            # Initialize index sampler at start of epoch.
-            sampler = iter(\
-                index_sampler(array_length=self.num_samples,
-                              random=self.sample_random,
-                              replacement=self.sample_with_replacement,
-                              weights=self.sample_weights,
-                              rng=self.rng))
-            
-            # Loop batchwise over the dataset.
-            for b in range(self.num_batches):
-                bs = min(self.batch_size,
-                            self.num_samples-b*self.batch_size)
-                if self.drop_incomplete_batches and bs < self.batch_size:
-                    continue
-                try:
-                    batch_indices = [next(sampler) for _ in range(bs)]
-                except:
-                    stop.set()
-                    raise()
-                put_successful = False
-                while not put_successful:
-                    try:
-                        idx_queue.put(batch_indices, timeout=0.001)
-                        put_successful = True
-                    except queue.Full:
-                        put_successful=False
-                    except:
-                        stop.set()
-                        raise
-                    if stop.is_set(): return
-            if not self.loop_forever:
-                return
             
     ''' Preload batches in the background and add them into the load_queue.
         Wait if the queue is full. '''
-    def _preload_subroutine(self, load_queue, idx_queue, stop):
+    def _preload_subroutine(self, load_queue, stop):
         while not stop.is_set():
-            batch_indices = None
-            while batch_indices is None:
-                try:
-                    batch_indices = idx_queue.get(timeout=0.001)
-                except queue.Empty:
-                    pass
-                except:
-                    stop.set()
-                    raise
-                if stop.is_set(): return
             # Assuming that if the user chose to have more than one loader
             # thread, data access is known to be threadsafe.
             batch = []
-            for d in self.data:
-                batch.append([np.array(d[int(i)]) for i in batch_indices])
+            for d in self._data_iterators:
+                try:
+                    next(d)
+                except StopIteration:
+                    stop.set()
+                    raise
+                batch.append(d)
+                if stop.is_set(): return
             if self.nb_proc_workers==0:
                 # If there are no worker processes, preprocess the batch
                 # in the loader thread.
@@ -296,54 +266,11 @@ class data_flow(object):
             raise
             
     def __len__(self):
+        if self.loop_forever:
+            raise TypeError("Object of type "
+                            "\'data_tools.io.data_flow\' has no "
+                            "len() when initialized with \'loop_forever\'.")
         return self.num_batches
-        
-        
-class index_sampler(object):
-    """
-    An iterable that generates array indices according to some sampling
-    strategy.
-    
-    array_length : the length of the array to sample from - indicies are
-        generated in the range [0, array_length-1].
-    random : sample in random order if True.
-    replacement : when doing random sampling, sample with replacement if True;
-        when this is active, the iterator never stops iterating since it never
-        runs out of elements to sample.
-    weights : a list of relative importance weights for every index; when 
-        normalized, these determine the probability for each element of being
-        sampled.
-    rng : random number generator
-    """
-    def __init__(self, array_length, random=True, replacement=False,
-                 weights=None, rng=None):
-        self.array_length = array_length
-        self.random = random
-        self.replacement = replacement
-        self.weights = weights
-        if rng is None:
-            self.rng = np.random.RandomState()
-        else:
-            self.rng = rng
-        
-    def __iter__(self):
-        for idx in self._gen_idx():
-            yield idx
-            
-    def _gen_idx(self):   
-        if self.random:
-            normalized_weights = None
-            if self.weights is not None:
-                normalized_weights = np.array(self.weights) \
-                                     / float(np.sum(self.weights))
-            indices = self.rng.choice(range(self.array_length),
-                                      size=self.array_length,
-                                      replace=self.replacement,
-                                      p=normalized_weights)
-        else:
-            indices = list(range(self.array_length))
-        for idx in indices:
-            yield idx
 
 
 class buffered_array_writer(object):
