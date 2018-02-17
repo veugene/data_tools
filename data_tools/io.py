@@ -231,7 +231,7 @@ class data_flow(object):
             # thread, data access is known to be threadsafe.
             batch = []
             for d in self.data:
-                batch.append([np.array(d[int(i)]) for i in batch_indices])
+                batch.append([d[int(i)] for i in batch_indices])
             if self.nb_proc_workers==0:
                 # If there are no worker processes, preprocess the batch
                 # in the loader thread.
