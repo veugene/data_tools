@@ -86,6 +86,9 @@ class data_flow(object):
         self.num_batches = self.num_samples//self.batch_size
         if self.num_samples%batch_size > 0 and not drop_incomplete_batches:
             self.num_batches += 1
+            
+    def __iter__(self):
+        return self.flow()
         
     ''' Generate batches of processed data (output with labels) '''
     def flow(self):
