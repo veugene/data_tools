@@ -48,6 +48,10 @@ class delayed_view(object):
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
         if self.shuffle:
             np.random.shuffle(self.arr_indices)
+            
+    def re_shuffle(self, random_seed=None):
+        rng = np.random.RandomState(random_seed)
+        rng.shuffle(self.arr_indices)
     
     def __iter__(self):
         for idx in self.arr_indices:
@@ -207,7 +211,7 @@ class multi_source_array(delayed_view):
         if self.shuffle==True:
             np.random.shuffle(self.index_pairs)
             
-    def shuffle(self, random_seed=None):
+    def re_shuffle(self, random_seed=None):
         rng = np.random.RandomState(random_seed)
         rng.shuffle(self.index_pairs)
     
