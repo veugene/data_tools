@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 
 
@@ -42,7 +43,8 @@ class delayed_view(object):
             self.shape = arr.shape
         except AttributeError:
             self.shape = (len(arr),)+np.shape(arr[0])
-        self.ndim = len(self.shape)
+        elem_shape = np.shape(self.arr[0])
+        self.ndim = len(elem_shape)+1
             
         # Create index list
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
@@ -174,10 +176,12 @@ class multi_source_array(delayed_view):
     maxlen      : the maximum number of elements to take from each source; if
         shuffle is False, a source is accessed as source[0:maxlen] and if
         shuffle is True, a source is accessed as shuffle(source)[0:maxlen]
+    no_shape : whether to ignore the shapes of sources; if True, the resulting
+        wrapper has a shape of None but retains a length attribute like a list.
     """
     
     def __init__(self, source_list,
-                 class_list=None, shuffle=False, maxlen=None):
+                 class_list=None, shuffle=False, maxlen=None, no_shape=False):
         self.source_list = source_list
         self.class_list = class_list
         self.shuffle = shuffle
@@ -191,13 +195,24 @@ class multi_source_array(delayed_view):
         # Ensure that all the data sources contain elements of the same shape
         # and data type
         self.dtype = self.source_list[0].dtype
-        self.shape = (self.num_items,)+self.source_list[0].shape[1:]
-        for i, source in enumerate(source_list):
-            if source.shape[1:] != self.shape[1:]:
-                raise ValueError
-            if source.dtype != self.dtype:
-                raise TypeError
-        self.ndim = len(self.shape)
+        self.no_shape = no_shape
+        for source in self.source_list:
+            if not hasattr(source, 'shape'):
+                self.no_shape = True
+        if self.no_shape:
+            warnings.warn("Either no_shape was set or at least one of the "
+                "sources provided to multi_source_array does not have a shape "
+                "attribute. Recording a shape of None.", RuntimeWarning)
+            self.shape = None
+        else:   
+            self.shape = (self.num_items,)+self.source_list[0].shape[1:]
+            for i, source in enumerate(source_list):
+                if source.shape[1:] != self.shape[1:]:
+                    raise ValueError
+                if source.dtype != self.dtype:
+                    raise TypeError
+        elem_shape = np.shape(self.source_list[0][0])
+        self.ndim = len(elem_shape)+1
             
         # Index the data sources
         self.index_pairs = []
