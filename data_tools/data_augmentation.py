@@ -32,7 +32,11 @@ def image_stack_random_transform(x, *args, y=None, channel_axis=1, **kwargs):
     x_arr = np.array(x)
     if y is not None:
         y_arr = np.array(y)
-        if x_arr.shape!=y_arr.shape:
+        x_shape = list(x_arr.shape)
+        y_shape = list(y_arr.shape)
+        x_shape[channel_axis] = None
+        y_shape[channel_axis] = None
+        if x_shape!=y_shape:
             raise ValueError("Error: inputs x and y to "
                              "image_stack_random_transform must have the same "
                              "shape. Shapes are {} and {} for x, y."
@@ -59,11 +63,12 @@ def image_stack_random_transform(x, *args, y=None, channel_axis=1, **kwargs):
                                 np.ndindex(y_arr.shape[:-3])):
             xt, yt = image_random_transform(x_arr[idx_x], y_arr[idx_y],
                                             *args, channel_axis=0, **kwargs)
-            out_shape = x_arr.shape[:-2]+xt.shape[-2:]
+            out_shape_x = x_arr.shape[:-2]+xt.shape[-2:]
+            out_shape_y = y_arr.shape[:-2]+xt.shape[-2:]
             if x_out is None:
-                x_out = np.zeros(out_shape, dtype=np.float32)
+                x_out = np.zeros(out_shape_x, dtype=np.float32)
             if y_out is None:
-                y_out = np.zeros(out_shape, dtype=np.float32)
+                y_out = np.zeros(out_shape_y, dtype=np.float32)
             x_out[idx_x], y_out[idx_y] = xt, yt
     else:
         for idx_x in np.ndindex(x_arr.shape[:-3]):
