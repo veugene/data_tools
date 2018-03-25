@@ -25,9 +25,11 @@ class delayed_view(object):
     shuffle : randomize data access order within the view
     idx_min : the view into arr starts at this index
     idx_max : the view into arr ends before this index
+    rng     : numpy random number generator
     """
     
-    def __init__(self, arr, shuffle=False, idx_min=None, idx_max=None):
+    def __init__(self, arr, shuffle=False, idx_min=None, idx_max=None,
+                 rng=None):
         self.arr = arr
         self.shuffle = shuffle
         self.idx_min = idx_min
@@ -36,6 +38,9 @@ class delayed_view(object):
         self.idx_max = idx_max
         if idx_max is None:
             self.idx_max = len(self.arr)
+        if rng is None:
+            rng = np.random.RandomState()
+        self.rng = rng
         self.num_items = min(self.idx_max, len(arr))-self.idx_min
         assert(self.num_items >= 0)
         self.dtype = self.arr.dtype
@@ -49,10 +54,12 @@ class delayed_view(object):
         # Create index list
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
         if self.shuffle:
-            np.random.shuffle(self.arr_indices)
+            self.rng.shuffle(self.arr_indices)
             
     def re_shuffle(self, random_seed=None):
-        rng = np.random.RandomState(random_seed)
+        rng = self.rng
+        if random_seed is not None:
+            rng = np.random.RandomState(random_seed)
         rng.shuffle(self.arr_indices)
     
     def __iter__(self):
@@ -178,10 +185,11 @@ class multi_source_array(delayed_view):
         shuffle is True, a source is accessed as shuffle(source)[0:maxlen]
     no_shape : whether to ignore the shapes of sources; if True, the resulting
         wrapper has a shape of None but retains a length attribute like a list.
+    rng         : numpy random number generator
     """
     
-    def __init__(self, source_list,
-                 class_list=None, shuffle=False, maxlen=None, no_shape=False):
+    def __init__(self, source_list, class_list=None, shuffle=False,
+                 maxlen=None, no_shape=False, rng=None):
         self.source_list = source_list
         self.class_list = class_list
         self.shuffle = shuffle
@@ -213,21 +221,26 @@ class multi_source_array(delayed_view):
                     raise TypeError
         elem_shape = np.shape(self.source_list[0][0])
         self.ndim = len(elem_shape)+1
+        if rng is None:
+            rng = np.random.RandomState()
+        self.rng = rng
             
         # Index the data sources
         self.index_pairs = []
         for i, source in enumerate(self.source_list):
             source_indices = np.arange(len(source))
             if self.shuffle:
-                np.random.shuffle(source_indices)
+                self.rng.shuffle(source_indices)
             source_indices = source_indices[:min(len(source), self.maxlen)]
             for j in source_indices:
                 self.index_pairs.append((i, j))
         if self.shuffle==True:
-            np.random.shuffle(self.index_pairs)
+            self.rng.shuffle(self.index_pairs)
             
     def re_shuffle(self, random_seed=None):
-        rng = np.random.RandomState(random_seed)
+        rng = self.rng
+        if random_seed is not None:
+            rng = np.random.RandomState(random_seed)
         rng.shuffle(self.index_pairs)
     
     def get_labels(self):
