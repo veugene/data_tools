@@ -48,8 +48,7 @@ class delayed_view(object):
             self.shape = arr.shape
         except AttributeError:
             self.shape = (len(arr),)+np.shape(arr[0])
-        elem_shape = np.shape(self.arr[0])
-        self.ndim = len(elem_shape)+1
+        self.ndim = np.ndim(self.arr)
             
         # Create index list
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
@@ -219,8 +218,7 @@ class multi_source_array(delayed_view):
                     raise ValueError
                 if source.dtype != self.dtype:
                     raise TypeError
-        elem_shape = np.shape(self.source_list[0][0])
-        self.ndim = len(elem_shape)+1
+        self.ndim = np.ndim(self.source_list[0])
         if rng is None:
             rng = np.random.RandomState()
         self.rng = rng
