@@ -86,36 +86,35 @@ class data_flow(object):
         self.num_batches = self.num_samples//self.batch_size
         if self.num_samples%batch_size > 0 and not drop_incomplete_batches:
             self.num_batches += 1
+        
+        # Multiprocessing/multithreading objects, queues, and stop event.
+        self._stop = None
+        self._load_queue = None
+        self._proc_queue = None
+        self._idx_queue = None
+        self._index_thread = None
+        self._process_list = []
+        self._preload_list = []
             
     def __iter__(self):
         return self.flow()
         
     ''' Generate batches of processed data (output with labels) '''
     def flow(self):
-        # Create a stop event to trigger on exceptions/interrupt/termination.
-        stop = multiprocessing.Event()
-        
-        # Prepare to start processes + thread.
-        load_queue = None
-        proc_queue = None
-        idx_queue = None
-        index_thread = None
-        process_list = []
-        preload_list = []
-        
+        self._stop = multiprocessing.Event()
         try:
             # Create the queues.
             #   NOTE: these can become corrupt on sub-process termination,
             #   so create them in flow() and let them die with the flow().
             q_size = max(self.nb_io_workers, self.nb_proc_workers)
-            load_queue = multiprocessing.Queue(q_size)
+            self._load_queue = multiprocessing.Queue(q_size)
             if self.nb_proc_workers > 0:
-                proc_queue = multiprocessing.Queue(q_size)
+                self._proc_queue = multiprocessing.Queue(q_size)
             else:
                 # If there are no worker processes, alias load_queue as
                 # proc_queue, allowing data to thus be yielded directly from
                 # the load_queue.
-                proc_queue = load_queue
+                self._proc_queue = self._load_queue
             
             # Start the parallel data processing proccess(es)
             seed_base = self.rng.randint(self.nb_proc_workers, 2**16)
@@ -123,62 +122,49 @@ class data_flow(object):
                 pseed = seed_base - i
                 process_thread = multiprocessing.Process( \
                     target=self._process_subroutine,
-                    args=(load_queue, proc_queue, stop, pseed))
+                    args=(self._load_queue, self._proc_queue,
+                          self._stop, pseed))
                 process_thread.daemon = True
                 process_thread.start()
-                process_list.append(process_thread)
+                self._process_list.append(process_thread)
                 
             # Start the data index provider thread.
-            idx_queue = queue.Queue(q_size)
-            index_thread = threading.Thread( \
+            self._idx_queue = queue.Queue(q_size)
+            self._index_thread = threading.Thread( \
                 target=self._index_provider,
-                args=(idx_queue, stop) )
-            index_thread.daemon = True
-            index_thread.start()
+                args=(self._idx_queue, self._stop) )
+            self._index_thread.daemon = True
+            self._index_thread.start()
                 
             # Start the parallel loader thread.
             # (must be started AFTER processes to avoid copying it in fork())
             for i in range(self.nb_io_workers):
                 preload_thread = threading.Thread( \
                     target=self._preload_subroutine,
-                    args=(load_queue, idx_queue, stop) )
+                    args=(self._load_queue, self._idx_queue, self._stop) )
                 preload_thread.daemon = True
                 preload_thread.start()
-                preload_list.append(preload_thread)
+                self._preload_list.append(preload_thread)
             
             # Yield batches fetched from the parallel process(es).
             nb_yielded = 0
-            while not stop.is_set():
+            while not self._stop.is_set():
                 try:
                     if not self.loop_forever and nb_yielded==self.num_batches:
-                        stop.set()
+                        self._stop.set()
                         break
-                    batch = proc_queue.get()
+                    batch = self._proc_queue.get()
                     yield batch
                     nb_yielded += 1
                 except:
-                    stop.set()
+                    self._stop.set()
                     raise
         except:
-            stop.set()
+            self._stop.set()
             raise
         finally:
             # Clean up, whether there was an exception or not.
-            #
-            # Set termination event, wait for all threads and processes to
-            # exit, then close queues.
-            stop.set()
-            index_thread.join()
-            for thread in preload_list:
-                thread.join()
-            for process in process_list:
-                process.join()
-            if self.nb_proc_workers and proc_queue is not None:
-                # If nb_proc_workers==0, proc_queue is just an alias to
-                # load_queue
-                proc_queue.close()
-            if load_queue is not None:
-                load_queue.close()
+            self._cleanup()
                 
     ''' Generate the indices to for each batch of data. '''
     def _index_provider(self, idx_queue, stop):
@@ -297,6 +283,36 @@ class data_flow(object):
             load_queue.cancel_join_thread()
             proc_queue.cancel_join_thread()
             raise
+        
+    ''' Set termination event, wait for all threads and processes to exit,
+        then close queues. '''
+    def _cleanup(self):
+        if self._stop is not None:
+            self._stop.set()
+        if self._index_thread is not None:
+            self._index_thread.join()
+        for thread in self._preload_list:
+            thread.join()
+        for process in self._process_list:
+            process.join()
+        if self.nb_proc_workers and self._proc_queue is not None:
+            # If nb_proc_workers==0, proc_queue is just an alias to
+            # load_queue
+            self._proc_queue.close()
+        if self._load_queue is not None:
+            self._load_queue.close()
+        
+        # Clear
+        self._stop = None
+        self._load_queue = None
+        self._proc_queue = None
+        self._idx_queue = None
+        self._index_thread = None
+        self._process_list = []
+        self._preload_list = []
+        
+    def __del__(self):
+        self._cleanup()
             
     def __len__(self):
         return self.num_batches
