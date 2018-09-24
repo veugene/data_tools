@@ -359,6 +359,7 @@ class buffered_array_writer(object):
     INPUTS
     storage_array      : the array to write into
     data_element_shape : shape of one input element
+    dtype              : numpy data type or data type as a string
     batch_size         : write the data to disk in batches of this size
     length             : dataset length (if None, expand it dynamically)
     """
@@ -447,6 +448,7 @@ class h5py_array_writer(buffered_array_writer):
     
     INPUTS
     data_element_shape : shape of one input element
+    dtype              : numpy data type or data type as a string
     batch_size         : write the data to disk in batches of this size
     filename           : name of file in which to store data
     array_name         : HDF5 array path
@@ -495,7 +497,6 @@ class h5py_array_writer(buffered_array_writer):
             self.storage_array_ptr = len(self.storage_array)
         except KeyError:
             self.storage_array = self.file.create_dataset( *ds_args,
-                               dtype=self.dtype,
                                maxshape=(self.length,)+self.data_element_shape,
                                **self.arr_kwargs )
             self.storage_array_ptr = 0
@@ -556,17 +557,15 @@ class bcolz_array_writer(buffered_array_writer):
         # (check if the array exists; if not, create it)
         if append:
             try:
-                self.storage = bcolz.open(self.save_path, mode='a')
+                self.storage_array = bcolz.open(self.save_path, mode='a')
                 self.storage_array_ptr = len(self.storage_array)
             except FileNotFoundError:
                 append=False
         if not append:
             try:
                 self.storage_array = bcolz.zeros(shape=(0,)+data_element_shape,
-                                                 dtype=np.float32,
-                                                 rootdir=self.save_path,
-                                                 mode=self.write_mode,
-                                                 **self.arr_kwargs )
+                                                 mode='w',
+                                                 **self.arr_kwargs)
                 self.storage_array_ptr = 0
             except:
                 print("Error: failed to create file-backed bcolz storage "
