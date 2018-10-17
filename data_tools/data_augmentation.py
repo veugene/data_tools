@@ -16,6 +16,7 @@ Copyright 2016, Michal Drozdzal
 """
 
 
+import os
 import numpy as np
 import scipy.ndimage as ndi
 import SimpleITK as sitk
@@ -141,7 +142,8 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
                            fill_mode='nearest', cval_x=0., cval_y=0.,
                            horizontal_flip=False, vertical_flip=False,
                            spline_warp=False, warp_sigma=0.1, warp_grid_size=3,
-                           crop_size=None, channel_axis=0, rng=None):
+                           crop_size=None, channel_axis=0, n_warp_threads=None,
+                           rng=None):
     
     # Set random number generator
     if rng is None:
@@ -157,19 +159,24 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
     
     # Nonlinear spline warping
     if spline_warp:
+        if n_warp_threads is None:
+            n_warp_threads = os.cpu_count()
         warp_field = _gen_warp_field(shape=x.shape[-2:],
                                      sigma=warp_sigma,
                                      grid_size=warp_grid_size,
+                                     n_threads=n_warp_threads,
                                      rng=rng)
         x = _apply_warp(x, warp_field,
                         interpolator=sitk.sitkNearestNeighbor,
                         fill_mode=fill_mode,
-                        cval=cval_x)
+                        cval=cval_x,
+                        n_threads=n_warp_threads)
         if y is not None:
             y = np.round(_apply_warp(y, warp_field,
                                      interpolator=sitk.sitkNearestNeighbor,
                                      fill_mode=fill_mode,
-                                     cval=cval_y))
+                                     cval=cval_y,
+                                     n_threads=n_warp_threads))
     
     # use composition of homographies to generate final transform that needs
     # to be applied
@@ -321,7 +328,7 @@ def _flip_axis(x, axis):
     return x_out
 
 
-def _gen_warp_field(shape, sigma=0.1, grid_size=3, rng=None):
+def _gen_warp_field(shape, sigma=0.1, grid_size=3, n_threads=1, rng=None):
     # Initialize bspline transform
     args = shape+(sitk.sitkFloat32,)
     ref_image = sitk.Image(*args)
@@ -343,6 +350,7 @@ def _gen_warp_field(shape, sigma=0.1, grid_size=3, rng=None):
     # Compute deformation field
     displacement_filter = sitk.TransformToDisplacementFieldFilter()
     displacement_filter.SetReferenceImage(ref_image)
+    displacement_filter.SetNumberOfThreads(n_threads)
     displacement_field = displacement_filter.Execute(tx)
 
     return displacement_field
@@ -387,7 +395,7 @@ def _pad_image(x, pad_amount, mode='reflect', cval=0.):
 
 def _apply_warp(x, warp_field, fill_mode='reflect',
                interpolator=sitk.sitkLinear,
-               cval=0, channel_index=0):
+               cval=0, channel_index=0, n_threads=1):
     # Expand deformation field (and later the image), padding for the largest
     # deformation
     warp_field_arr = sitk.GetArrayFromImage(warp_field)
@@ -403,6 +411,7 @@ def _apply_warp(x, warp_field, fill_mode='reflect',
     warp_filter = sitk.WarpImageFilter()
     warp_filter.SetInterpolator(interpolator)
     warp_filter.SetEdgePaddingValue(np.min(x).astype(np.double))
+    warp_filter.SetNumberOfThreads(n_threads)
     x_by_channel = np.rollaxis(x, channel_index, 0)
     for i, channel in enumerate(x_by_channel):
         image_padded = _pad_image(channel, pad_amount=pad, mode=fill_mode,
