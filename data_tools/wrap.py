@@ -48,7 +48,7 @@ class delayed_view(object):
             self.shape = arr.shape
         except AttributeError:
             self.shape = (len(arr),)+np.shape(arr[0])
-        self.ndim = np.ndim(self.arr)
+        self.ndim = len(self.shape)
             
         # Create index list
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
