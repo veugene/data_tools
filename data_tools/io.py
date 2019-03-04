@@ -422,7 +422,8 @@ class buffered_array_writer(object):
             
         # Verify data type
         if data.dtype != self.dtype:
-            raise TypeError
+            raise TypeError("Specified dtype '{}' but data has dtype '{}'."
+                            "".format(self.dtype, data.dtype))
             
         # Buffer/write
         if data_len == 1:
