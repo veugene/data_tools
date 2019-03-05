@@ -211,7 +211,7 @@ class multi_source_array(delayed_view):
             if self.shape[1:]!=shape[1:]:
                 raise ValueError("all sources must have same elem shape")
             if source.dtype != self.dtype:
-                raise TypeError("all sources must have same dtype")
+                self.dtype = None   # Cannot determine dtype.
         self.ndim = len(self.shape)
         if rng is None:
             rng = np.random.RandomState()
