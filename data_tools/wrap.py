@@ -209,7 +209,13 @@ class multi_source_array(delayed_view):
             if self.shape is None:
                 self.shape = (self.num_items,)+shape[1:]
             if self.shape[1:]!=shape[1:]:
-                raise ValueError("all sources must have same elem shape")
+                # In order, match all dimensions with the same shape, until
+                # a match is not found.
+                new_shape = self.shape
+                for i in range(1, max(min(len(self.shape), len(shape)), 1)):
+                    if self.shape[1:i]==shape[1:i]:
+                        new_shape = self.shape[:i]
+                self.shape = new_shape
             if source.dtype != self.dtype:
                 self.dtype = None   # Cannot determine dtype.
         self.ndim = len(self.shape)
