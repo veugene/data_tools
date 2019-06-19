@@ -19,6 +19,19 @@ __data_tools__
     * patch_generator
     * create_dataset
 
+## Installation ##
+
+__Requires__
+* numpy
+* scipy
+* SimpleITK
+* h5py
+* bcolz
+
+__Setup__
+```
+python setup.py install --user
+```
 
 ## Data wrappers ##
 
