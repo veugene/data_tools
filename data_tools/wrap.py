@@ -48,8 +48,7 @@ class delayed_view(object):
             self.shape = arr.shape
         except AttributeError:
             self.shape = (len(arr),)+np.shape(arr[0])
-        elem_shape = np.shape(self.arr[0])
-        self.ndim = len(elem_shape)+1
+        self.ndim = len(self.shape)
             
         # Create index list
         self.arr_indices = np.arange(self.idx_min, min(self.idx_max, len(arr)))
@@ -183,13 +182,11 @@ class multi_source_array(delayed_view):
     maxlen      : the maximum number of elements to take from each source; if
         shuffle is False, a source is accessed as source[0:maxlen] and if
         shuffle is True, a source is accessed as shuffle(source)[0:maxlen]
-    no_shape : whether to ignore the shapes of sources; if True, the resulting
-        wrapper has a shape of None but retains a length attribute like a list.
     rng         : numpy random number generator
     """
     
     def __init__(self, source_list, class_list=None, shuffle=False,
-                 maxlen=None, no_shape=False, rng=None):
+                 maxlen=None, rng=None):
         self.source_list = source_list
         self.class_list = class_list
         self.shuffle = shuffle
@@ -203,24 +200,25 @@ class multi_source_array(delayed_view):
         # Ensure that all the data sources contain elements of the same shape
         # and data type
         self.dtype = self.source_list[0].dtype
-        self.no_shape = no_shape
-        for source in self.source_list:
-            if not hasattr(source, 'shape'):
-                self.no_shape = True
-        if self.no_shape:
-            warnings.warn("Either no_shape was set or at least one of the "
-                "sources provided to multi_source_array does not have a shape "
-                "attribute. Recording a shape of None.", RuntimeWarning)
-            self.shape = None
-        else:   
-            self.shape = (self.num_items,)+self.source_list[0].shape[1:]
-            for i, source in enumerate(source_list):
-                if source.shape[1:] != self.shape[1:]:
-                    raise ValueError
-                if source.dtype != self.dtype:
-                    raise TypeError
-        elem_shape = np.shape(self.source_list[0][0])
-        self.ndim = len(elem_shape)+1
+        self.shape = None
+        for i, source in enumerate(source_list):
+            try:
+                shape = source.shape
+            except AttributeError:
+                shape = len(source)+np.shape(source[0])
+            if self.shape is None:
+                self.shape = (self.num_items,)+shape[1:]
+            if self.shape[1:]!=shape[1:]:
+                # In order, match all dimensions with the same shape, until
+                # a match is not found.
+                new_shape = self.shape
+                for i in range(1, max(min(len(self.shape), len(shape)), 1)):
+                    if self.shape[1:i]==shape[1:i]:
+                        new_shape = self.shape[:i]
+                self.shape = new_shape
+            if source.dtype != self.dtype:
+                self.dtype = None   # Cannot determine dtype.
+        self.ndim = len(self.shape)
         if rng is None:
             rng = np.random.RandomState()
         self.rng = rng
