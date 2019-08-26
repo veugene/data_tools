@@ -5,7 +5,6 @@ try:
     import queue            # python 3
 except ImportError:
     import Queue as queue   # python 2
-
 import numpy as np
 
 
@@ -247,6 +246,8 @@ class data_flow(object):
         processed queue -- these are ready to yield. '''
     def _process_subroutine(self, load_queue, proc_queue, stop, seed):
         np.random.seed(seed)
+        load_queue.cancel_join_thread()
+        proc_queue.cancel_join_thread()
         try:
             while not stop.is_set():
                 batch = None
@@ -280,8 +281,6 @@ class data_flow(object):
                     if stop.is_set(): return
         except:
             stop.set()
-            load_queue.cancel_join_thread()
-            proc_queue.cancel_join_thread()
             raise
         
     ''' Set termination event, wait for all threads and processes to exit,
@@ -301,7 +300,7 @@ class data_flow(object):
             self._proc_queue.close()
         if self._load_queue is not None:
             self._load_queue.close()
-        
+
         # Clear
         self._stop = None
         self._load_queue = None
