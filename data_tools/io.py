@@ -129,7 +129,7 @@ class data_flow(object):
                 self._process_list.append(process_thread)
                 
             # Start the data index provider thread.
-            self._idx_queue = queue.Queue(q_size)
+            self._idx_queue = multiprocessing.Queue(q_size)
             self._index_thread = threading.Thread( \
                 target=self._index_provider,
                 args=(self._idx_queue, self._stop) )
