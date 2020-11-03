@@ -43,9 +43,9 @@ class data_flow(object):
         sampling without replacement, there is one such batch per epoch.
     preprocessor : The preprocessor function to call on a batch. As input,
         takes a batch of the same arrangement as `data`.
-    index_sampler : An iterator that returns array indices according
-        to some sampling strategy. By default, uses wrap.index_sampler,
-        initialized to do random sampling without replacement.
+    sampler : An iterator that returns array indices according to some sampling
+        strategy. By default, uses wrap.default_sampler, initialized to do 
+        random sampling without replacement.
     rng : A numpy random number generator. The rng is used to determine data
         shuffle order and is used to uniquely seed the numpy RandomState in
         each parallel process (if any).
@@ -54,7 +54,8 @@ class data_flow(object):
     def __init__(self, data, batch_size, nb_io_workers=1, nb_proc_workers=0,
                  loop_forever=False, sample_random=False,
                  sample_with_replacement=False, sample_weights=None,
-                 drop_incomplete_batches=False, preprocessor=None, rng=None):
+                 drop_incomplete_batches=False, preprocessor=None,
+                 sampler=None, rng=None):
         self.data = data
         self.batch_size = batch_size
         self.nb_io_workers = nb_io_workers
@@ -74,6 +75,7 @@ class data_flow(object):
             self._process_batch = preprocessor
         else:
             self._process_batch = lambda x: x   # Do nothing by default
+        self.sampler = sampler
         if rng is None:
             self.rng = np.random.RandomState()
         else:
@@ -170,12 +172,15 @@ class data_flow(object):
     def _index_provider(self, idx_queue, stop):
         while not stop.is_set():
             # Initialize index sampler at start of epoch.
-            sampler = iter(\
-                index_sampler(array_length=self.num_samples,
-                              random=self.sample_random,
-                              replacement=self.sample_with_replacement,
-                              weights=self.sample_weights,
-                              rng=self.rng))
+            if self.sampler is None:
+                sampler = iter(\
+                    default_sampler(array_length=self.num_samples,
+                                    random=self.sample_random,
+                                    replacement=self.sample_with_replacement,
+                                    weights=self.sample_weights,
+                                    rng=self.rng))
+            else:
+                sampler = iter(self.sampler)
             
             # Loop batchwise over the dataset.
             for b in range(self.num_batches):
@@ -318,7 +323,7 @@ class data_flow(object):
         return self.num_batches
         
         
-class index_sampler(object):
+class default_sampler(object):
     """
     An iterable that generates array indices according to some sampling
     strategy.
@@ -326,9 +331,7 @@ class index_sampler(object):
     array_length : the length of the array to sample from - indicies are
         generated in the range [0, array_length-1].
     random : sample in random order if True.
-    replacement : when doing random sampling, sample with replacement if True;
-        when this is active, the iterator never stops iterating since it never
-        runs out of elements to sample.
+    replacement : when doing random sampling, sample with replacement.
     weights : a list of relative importance weights for every index; when 
         normalized, these determine the probability for each element of being
         sampled.
