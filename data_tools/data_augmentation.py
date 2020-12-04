@@ -100,8 +100,11 @@ handles on input images alone or jointly on input images and their
 corresponding output images (eg. input images and corresponding segmentation
 masks).
 
+This function assumes that any input image or mask has three dimensions
+where the first is a channel dimension the rest are spatial dimensions.
+
 x : A single 2D input image (ndim=3, channel and 2 spatial dims).
-y : A single output image or mask.
+y : A single output image or mask (ndim=3, channel and 2 spatial dims).
 rotation_range : Positive degree value, specifying the maximum amount to rotate
     the image in any direction about its center.
 width_shift_range : Float specifying the maximum distance by which to shift the
@@ -132,8 +135,6 @@ warp_grid_size : Integer s specifying an a grid with s by s control points.
 crop_size : Tuple specifying the size of random crops taken of transformed 
     images. Crops are always taken from within the transformed image, with no
     padding.
-channel_axis : The axis in the input images that corresponds to the channel.
-    Remaining axes are the two spatial axes.
 rng : A numpy random number generator.
 """
 def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
@@ -142,8 +143,7 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
                            fill_mode='nearest', cval_x=0., cval_y=0.,
                            horizontal_flip=False, vertical_flip=False,
                            spline_warp=False, warp_sigma=0.1, warp_grid_size=3,
-                           crop_size=None, channel_axis=0, n_warp_threads=None,
-                           rng=None):
+                           crop_size=None, n_warp_threads=None, rng=None):
     
     # Set random number generator
     if rng is None:
@@ -153,9 +153,6 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
     assert(x.ndim == 3)
     if y is not None:
         assert(y.ndim == 3)
-    img_row_index = 1
-    img_col_index = 2
-    img_channel_index = channel_axis
     
     # Nonlinear spline warping
     if spline_warp:
@@ -205,14 +202,12 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
                                 [np.sin(theta), np.cos(theta), 0],
                                 [0, 0, 1]])
     if height_shift_range:
-        tx = rng.uniform(-height_shift_range, height_shift_range) \
-                 * x.shape[img_row_index]
+        tx = rng.uniform(-height_shift_range, height_shift_range) * x.shape[1]
     else:
         tx = 0
 
     if width_shift_range:
-        ty = rng.uniform(-width_shift_range, width_shift_range) \
-                 * x.shape[img_col_index]
+        ty = rng.uniform(-width_shift_range, width_shift_range) * x.shape[2]
     else:
         ty = 0
 
@@ -230,34 +225,35 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
     transform_matrix = np.dot(np.dot(np.dot(rotation_matrix, shear_matrix),
                                      translation_matrix), zoom_matrix)
 
-    h, w = x.shape[img_row_index], x.shape[img_col_index]
+    h, w = x.shape[1], x.shape[2]
     transform_matrix = _transform_matrix_offset_center(transform_matrix, h, w)
-    x = _apply_transform_matrix(x, transform_matrix, img_channel_index,
-                                fill_mode=fill_mode, cval=cval_x)
+    x = _apply_transform_matrix(x, transform_matrix,
+                                fill_mode=fill_mode,
+                                cval=cval_x)
     if y is not None:
-        y = _apply_transform_matrix(y, transform_matrix, img_channel_index,
-                                    fill_mode=fill_mode, cval=cval_y)
+        y = _apply_transform_matrix(y, transform_matrix,
+                                    fill_mode=fill_mode,
+                                    cval=cval_y)
 
     if intensity_shift_range != 0:
-        x = _random_intensity_shift(x, intensity_shift_range, img_channel_index,
-                                  rng=rng)
+        x = _random_intensity_shift(x, intensity_shift_range, rng=rng)
 
     if horizontal_flip:
         if rng.random_sample() < 0.5:
-            x = _flip_axis(x, img_col_index)
+            x = _flip_axis(x, 2)
             if y is not None:
-                y = _flip_axis(y, img_col_index)
+                y = _flip_axis(y, 2)
 
     if vertical_flip:
         if rng.random_sample() < 0.5:
-            x = _flip_axis(x, img_row_index)
+            x = _flip_axis(x, 1)
             if y is not None:
-                y = _flip_axis(y, img_row_index)
+                y = _flip_axis(y, 1)
 
     # Crop
     crop = list(crop_size) if crop_size else None
     if crop:
-        h, w = x.shape[img_row_index], x.shape[img_col_index]
+        h, w = x.shape[1], x.shape[2]
 
         if crop[0] < h:
             top = rng.randint(h - crop[0])
@@ -293,29 +289,22 @@ def _transform_matrix_offset_center(matrix, x, y):
     return transform_matrix
 
 
-def _apply_transform_matrix(x, transform_matrix, channel_index=0,
-                            fill_mode='nearest', cval=0.):
-    x_ = np.copy(x)
-    x_ = np.rollaxis(x_, channel_index, 0)
+def _apply_transform_matrix(x, transform_matrix, fill_mode='nearest', cval=0.):
     final_affine_matrix = transform_matrix[:2, :2]
     final_offset = transform_matrix[:2, 2]
     channel_images = [ndi.interpolation.affine_transform(\
                           x_channel, final_affine_matrix, final_offset,
                           order=0, mode=fill_mode, cval=cval)\
-                                                           for x_channel in x_]
+                                                           for x_channel in x]
     x_out = np.stack(channel_images, axis=0)
-    x_out = np.rollaxis(x_out, 0, channel_index+1)
     return x_out
 
 
-def _random_intensity_shift(x, intensity, channel_index=0, rng=None):
-    x_ = np.copy(x)
-    x_ = np.rollaxis(x_, channel_index, 0)
+def _random_intensity_shift(x, intensity, rng=None):
     channel_images = [np.clip(x_channel + \
                               rng.uniform(-intensity, intensity),
-                              np.min(x_), np.max(x_))      for x_channel in x_]
+                              np.min(x), np.max(x))      for x_channel in x]
     x_out = np.stack(channel_images, axis=0)
-    x_out = np.rollaxis(x_out, 0, channel_index+1)
     return x_out
 
 
@@ -394,8 +383,7 @@ def _pad_image(x, pad_amount, mode='reflect', cval=0.):
 
 
 def _apply_warp(x, warp_field, fill_mode='reflect',
-               interpolator=sitk.sitkLinear,
-               cval=0, channel_index=0, n_threads=1):
+               interpolator=sitk.sitkLinear, cval=0, n_threads=1):
     # Expand deformation field (and later the image), padding for the largest
     # deformation
     warp_field_arr = sitk.GetArrayFromImage(warp_field)
@@ -412,13 +400,11 @@ def _apply_warp(x, warp_field, fill_mode='reflect',
     warp_filter.SetInterpolator(interpolator)
     warp_filter.SetEdgePaddingValue(np.min(x).astype(np.double))
     warp_filter.SetNumberOfThreads(n_threads)
-    x_by_channel = np.rollaxis(x, channel_index, 0)
-    for i, channel in enumerate(x_by_channel):
+    for i, channel in enumerate(x):
         image_padded = _pad_image(channel, pad_amount=pad, mode=fill_mode,
                                   cval=cval).T
         image_f = sitk.GetImageFromArray(image_padded)
         image_f_warped = warp_filter.Execute(image_f, warp_field_padded)
         image_warped = sitk.GetArrayFromImage(image_f_warped)
         x_warped[i] = image_warped[pad:-pad, pad:-pad].T
-    x_warped = np.rollaxis(x_warped, 0, channel_index+1)
     return x_warped

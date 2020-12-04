@@ -258,7 +258,7 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
                            fill_mode='nearest', cval_x=0., cval_y=0.,
                            horizontal_flip=False, vertical_flip=False,
                            spline_warp=False, warp_sigma=0.1, warp_grid_size=3,
-                           crop_size=None, channel_axis=0, rng=None)
+                           crop_size=None, rng=None)
 ```
 
 #### Arguments ####
@@ -279,7 +279,6 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
 * __warp_sigma__ : Standard deviation of control point jitter in spline warp.
 * __warp_grid_size__ : Integer s specifying an a grid with s by s control points.
 * __crop_size__ : Tuple specifying the size of random crops taken of transformed images. Crops are always taken from within the transformed image, with no padding.
-* __channel_axis__ : The axis in the input images that corresponds to the channel. Remaining axes are the two spatial axes.
 * __rng__ : A numpy random number generator.
 
 ### Image stack transformation ###
