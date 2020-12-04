@@ -284,10 +284,10 @@ def image_random_transform(x, y=None, rotation_range=0., width_shift_range=0.,
 
 ### Image stack transformation ###
 
-Transforms an N-dimensional stack of input images (or input image and target image pairs). Assumes the final two axes are spatial axes (not considering the channel axis).
+Transforms an N-dimensional stack of input images (or input image and target image pairs). Assumes the final two axes are spatial axes (not considering the channel axis). By default, each 2D image in the ND stack gets its own random transformation; if `same_transform` is `True`, then all images are transformed with the same random transformation.
 
 ```python
-def image_stack_random_transform(x, *args, y=None, channel_axis=1, **kwargs)
+def image_stack_random_transform(x, *args, y=None, channel_axis=1, same_transform=False, rng=None, **kwargs)
 ```
 
 Calls `image_random_transform`.

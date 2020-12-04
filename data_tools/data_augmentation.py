@@ -28,7 +28,12 @@ final two axes are spatial axes (not considering the channel axis).
 
 Arguments are as defined for image_random_transform.
 """
-def image_stack_random_transform(x, *args, y=None, channel_axis=1, **kwargs):
+def image_stack_random_transform(x, *args, y=None, channel_axis=1,
+                                 same_transform=False, rng=None, **kwargs):
+    if rng is None:
+        rng = np.random.RandomState()
+    rng_state = rng.get_state()
+        
     # Make sure these are numpy arrays.
     x_arr = np.array(x)
     if y is not None:
@@ -63,7 +68,10 @@ def image_stack_random_transform(x, *args, y=None, channel_axis=1, **kwargs):
         for idx_x, idx_y in zip(np.ndindex(x_arr.shape[:-3]),
                                 np.ndindex(y_arr.shape[:-3])):
             xt, yt = image_random_transform(x_arr[idx_x], y_arr[idx_y],
-                                            *args, channel_axis=0, **kwargs)
+                                            *args, channel_axis=0, rng=rng,
+                                            **kwargs)
+            if same_transform:
+                rng.set_state(rng_state)
             out_shape_x = x_arr.shape[:-2]+xt.shape[-2:]
             out_shape_y = y_arr.shape[:-2]+xt.shape[-2:]
             if x_out is None:
@@ -74,7 +82,10 @@ def image_stack_random_transform(x, *args, y=None, channel_axis=1, **kwargs):
     else:
         for idx_x in np.ndindex(x_arr.shape[:-3]):
             xt = image_random_transform(x_arr[idx_x],
-                                        *args, channel_axis=0, **kwargs)
+                                        *args, channel_axis=0, rng=rng,
+                                        **kwargs)
+            if same_transform:
+                rng.set_state(rng_state)
             out_shape = x_arr.shape[:-2]+xt.shape[-2:]
             if x_out is None:
                 x_out = np.zeros(out_shape, dtype=np.float32)
